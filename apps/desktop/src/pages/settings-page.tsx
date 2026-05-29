@@ -16,7 +16,8 @@ const DEFAULT_CORE: CoreSettings = {
   proxyScope: "local",
   proxyPort: 2080,
   socksPort: 2081,
-  autoReconnect: true
+  autoReconnect: true,
+  transportMode: "singbox"
 };
 
 const DEFAULT_UI: UiSettings = {
@@ -119,7 +120,8 @@ export function SettingsPage() {
         proxyScope: coreData.proxyScope === "lan" ? "lan" : "local",
         proxyPort: coreData.proxyPort,
         socksPort: coreData.socksPort,
-        autoReconnect: coreData.autoReconnect
+        autoReconnect: coreData.autoReconnect,
+        transportMode:coreData.transportMode
       });
     }
   }, [coreData]);
@@ -296,7 +298,7 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-[minmax(0,1fr)_280px] gap-4">
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4">
         <Card className="flex h-[280px] flex-col">
           <h3 className="mb-3 text-sm font-semibold">Cloudflare Listener JSON</h3>
           <div className="mb-3 flex items-center gap-2">
@@ -377,7 +379,7 @@ export function SettingsPage() {
 
         <Card className="flex h-[280px] flex-col">
           <h3 className="mb-4 text-sm font-semibold">Proxy Port</h3>
-          <ToggleGroup type="single" value={coreDraft.proxyScope} className="w-[180px] mx-auto mb-4"
+          <ToggleGroup type="single" value={coreDraft.proxyScope} className="w-[180px] mx-auto mb-5"
             onValueChange={(value) => {
               if (value) {
                 void saveProxySettings({
@@ -391,8 +393,7 @@ export function SettingsPage() {
             <ToggleGroupItem value="lan" className="gap-2"><Network className="h-4 w-4" /> LAN</ToggleGroupItem>
           </ToggleGroup>
 
-          <div className="grid grid-cols-2 gap-3">
-            <label className="space-y-1 text-sm">
+          <label className="space-y-1 text-sm mb-4">
               <div className="text-xs text-textMuted">HTTP</div>
               <Input
                 type="number"
@@ -401,7 +402,7 @@ export function SettingsPage() {
                 placeholder="HTTP"
               />
             </label>
-            <label className="space-y-1 text-sm">
+          <label className="space-y-1 text-sm">
               <div className="text-xs text-textMuted">SOCKS</div>
               <Input
                 type="number"
@@ -410,8 +411,78 @@ export function SettingsPage() {
                 placeholder="SOCKS"
               />
             </label>
-          </div>
-          <label className="mt-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4">
+        <Card className="h-[260px]">
+          <h3 className="text-sm font-semibold mb-3">Appearance</h3>
+
+          <ToggleGroup type="single" className="mx-auto w-[270px] mb-3" value={uiDraft.theme}
+                       onValueChange={(value) => {
+                         if (value) { void changeTheme(value as "light" | "dark" | "system"); }
+                       }}
+          >
+            <ToggleGroupItem value="light">Light</ToggleGroupItem>
+            <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
+            <ToggleGroupItem value="system">System</ToggleGroupItem>
+          </ToggleGroup>
+
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
+            <div>
+              <div className="font-medium">Start with Windows</div>
+              <div className="text-xs text-textMuted">
+                Launch Fracture automatically when you sign in.
+              </div>
+            </div>
+
+            <Switch
+              checked={uiDraft.runOnStartup}
+              onCheckedChange={(checked) =>
+                void updateUiSettings({
+                  runOnStartup: checked
+                })
+              }
+            />
+          </label>
+
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+            <div>
+              <div className="font-medium">Close To Tray</div>
+              <div className="text-xs text-textMuted">
+                When enabled, closing the window hides Fracture to the system tray.
+              </div>
+            </div>
+
+            <Switch
+              checked={uiDraft.closeToTray}
+              onCheckedChange={(checked) =>
+                void updateUiSettings({
+                  closeToTray: checked
+                })
+              }
+            />
+          </label>
+        </Card>
+
+        <Card className="flex h-[260px] flex-col">
+          <h3 className="mb-4 text-sm font-semibold">Transport Mode</h3>
+          <ToggleGroup
+            type="single"
+            value={coreDraft.transportMode || "singbox"}
+            onValueChange={(value) => {
+              if (value) void saveProxySettings({ ...coreDraft, transportMode: value as "singbox" | "tcp-inject" });
+            }}
+            className="w-full"
+          >
+            <ToggleGroupItem value="singbox" className="flex-1">Standard (sing‑box)</ToggleGroupItem>
+            <ToggleGroupItem value="tcp-inject" className="flex-1">TCP Inject (Fake TLS)</ToggleGroupItem>
+          </ToggleGroup>
+          <p className="text-xs text-textMuted mt-2">
+            TCP Inject mode uses wrong_seq packet injection to bypass DPI. Requires administrator privileges.
+          </p>
+
+            <label className="mt-10 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
             <div>
               <div className="font-medium text-text">Auto Reconnect</div>
               <div className="text-xs text-textMuted">
@@ -431,54 +502,6 @@ export function SettingsPage() {
           </label>
         </Card>
       </div>
-
-      <Card className="space-y-3">
-        <h3 className="text-sm font-semibold">Appearance</h3>
-        <ToggleGroup type="single" className="mx-auto w-[270px]" value={uiDraft.theme}
-                     onValueChange={(value) => {
-                       if (value) { void changeTheme(value as "light" | "dark" | "system"); }
-                     }}
-        >
-          <ToggleGroupItem value="light">Light</ToggleGroupItem>
-          <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
-          <ToggleGroupItem value="system">System</ToggleGroupItem>
-        </ToggleGroup>
-
-        <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-          <div>
-            <div className="font-medium">Start with Windows</div>
-            <div className="text-xs text-textMuted">
-              Launch Fracture automatically when you sign in.
-            </div>
-          </div>
-
-          <Switch
-            checked={uiDraft.runOnStartup}
-            onCheckedChange={(checked) =>
-              void updateUiSettings({
-                runOnStartup: checked
-              })
-            }
-          />
-        </label>
-        <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-          <div>
-            <div className="font-medium">Close To Tray</div>
-            <div className="text-xs text-textMuted">
-              When enabled, closing the window hides Fracture to the system tray.
-            </div>
-          </div>
-
-          <Switch
-            checked={uiDraft.closeToTray}
-            onCheckedChange={(checked) =>
-              void updateUiSettings({
-                closeToTray: checked
-              })
-            }
-          />
-        </label>
-      </Card>
     </div>
   );
 }

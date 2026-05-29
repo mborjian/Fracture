@@ -30,6 +30,7 @@ from app.services.singbox import (
     stop_all_warm_instances,
     stop_instance,
 )
+from app.services.transport import manager as transport_manager
 
 CoreRuntime = Literal["sing-box"]
 ConnectionState = Literal["stopped", "starting", "running", "error"]
@@ -89,8 +90,8 @@ class RuntimeStatus:
 
 class CoreRuntimeService:
     def __init__(
-        self,
-        publish_event: Callable[[str, dict], Awaitable[None]],
+            self,
+            publish_event: Callable[[str, dict], Awaitable[None]],
     ) -> None:
         self._publish_event = publish_event
         self._status = RuntimeStatus()
@@ -280,6 +281,12 @@ class CoreRuntimeService:
         profile = self._apply_cloudflare_listener(profile, cloudflare_listener)
         routing = await fetch_routing_config()
         core_settings = await fetch_core_settings()
+        transport_mode = core_settings.get("transportMode", "singbox")
+
+        if transport_mode == "tcp-inject":
+            # Use TCP injection instead of sing‑box
+            await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
+            return
 
         mode = "tun" if bool(routing.get("tunMode", False)) else "proxy"
         http_port = int(core_settings.get("proxyPort", 2080))
@@ -302,6 +309,31 @@ class CoreRuntimeService:
         self._instance = instance
         await self._ensure_readiness_locked()
 
+    async def _spawn_tcp_inject_locked(self, profile: Profile, core_settings: dict, listener: dict | None) -> None:
+        # Build real server details from listener (same as _apply_cloudflare_listener)
+        if listener and profile.server in {"127.0.0.1", "0.0.0.0", "localhost"}:
+            connect_ip = str(listener.get("CONNECT_IP", "")).strip()
+            connect_port = int(listener.get("CONNECT_PORT", profile.port))
+            fake_sni = str(listener.get("FAKE_SNI", "")).strip()
+            if not connect_ip:
+                raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
+        else:
+            connect_ip = profile.server
+            connect_port = profile.port
+            fake_sni = profile.sni or ""
+
+        interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
+        # Start the background injector
+        transport_manager.start_injector(interface_ipv4, connect_ip, connect_port, fake_sni.encode())
+
+        # Now we need to "claim" that the runtime is ready – but the actual per‑connection
+        # injection will happen inside handle() of the main TCP listener.
+        # For status reporting we mark as running immediately.
+        self._status.ready = True
+        self._status.runtime = "tcp-inject"
+        # We won't have a sing‑box process, so we set instance to None
+        self._instance = None
+
     async def _ensure_readiness_locked(self) -> None:
         if self._instance is None:
             raise RuntimeError("Runtime instance was not created")
@@ -320,11 +352,14 @@ class CoreRuntimeService:
         )
 
     async def _stop_runtime_locked(self) -> None:
+        transport_manager.stop_injector()
+
         if self._sampler_task is not None:
             self._sampler_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await self._sampler_task
             self._sampler_task = None
+
         await self._cleanup_instance_locked()
 
     async def _cleanup_instance_locked(self) -> None:
@@ -394,6 +429,7 @@ class CoreRuntimeService:
         self._status.listen_host = "0.0.0.0" if self._status.proxy_scope == "lan" else "127.0.0.1"
         self._status.http_port = int(core_settings.get("proxyPort", 2080))
         self._status.socks_port = int(core_settings.get("socksPort", 2081))
+
         self._status.local_device_ip = await asyncio.to_thread(self._resolve_local_device_ip)
 
     async def _emit_status_locked(self) -> None:

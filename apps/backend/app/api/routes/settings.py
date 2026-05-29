@@ -47,6 +47,7 @@ class CoreSettingsPayload(BaseModel):
     proxyPort: int = Field(default=2080, ge=1, le=65535)
     socksPort: int = Field(default=2081, ge=1, le=65535)
     autoReconnect: bool = True
+    transportMode: str = Field(default="singbox")  # new
 
 
 class UiSettingsPayload(BaseModel):

@@ -86,6 +86,7 @@ export interface CoreSettings {
   proxyPort: number;
   socksPort: number;
   autoReconnect: boolean;
+  transportMode: "singbox" | "tcp-inject";
 }
 
 export interface UiSettings {

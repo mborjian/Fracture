@@ -44,6 +44,7 @@ _DEFAULT_APP_SETTINGS_DOC: dict[str, Any] = {
         "proxyPort": 2080,
         "socksPort": 2081,
         "autoReconnect": True,
+        "transportMode": "singbox",  # "singbox" or "tcp-inject"
     },
     "ui": {
         "theme": "system",
@@ -300,7 +301,8 @@ async def upsert_profiles(imported_profiles: list[dict[str, Any]]) -> dict[str, 
             created += 1
 
         data["profiles"] = existing
-        if existing and (not data.get("activeProfileId") or all(str(item.get("id")) != str(data.get("activeProfileId")) for item in existing)):
+        if existing and (not data.get("activeProfileId") or all(
+                str(item.get("id")) != str(data.get("activeProfileId")) for item in existing)):
             data["activeProfileId"] = str(existing[0].get("id"))
         await _save_profiles_doc(data)
 
@@ -356,7 +358,8 @@ async def clear_profiles_without_successful_ping() -> int:
         new_profiles = [item for item in old_profiles if int(item.get("pingSuccessCount", 0)) > 0]
         removed = len(old_profiles) - len(new_profiles)
         data["profiles"] = new_profiles
-        if str(data.get("activeProfileId")) and all(str(p.get("id")) != str(data.get("activeProfileId")) for p in new_profiles):
+        if str(data.get("activeProfileId")) and all(
+                str(p.get("id")) != str(data.get("activeProfileId")) for p in new_profiles):
             data["activeProfileId"] = new_profiles[0].get("id") if new_profiles else None
 
         if removed > 0:
@@ -438,7 +441,7 @@ async def sort_profiles_by_ping() -> int:
         indexed.sort(
             key=lambda pair: (
                 pair[1].get("lastPingMs") is None,
-                int(pair[1].get("lastPingMs") or 10**9),
+                int(pair[1].get("lastPingMs") or 10 ** 9),
                 pair[0],
             )
         )
