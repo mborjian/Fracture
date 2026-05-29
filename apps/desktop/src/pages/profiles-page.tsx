@@ -463,7 +463,7 @@ export function ProfilesPage() {
 
       {showImport ? (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-overlay p-4 backdrop-blur-sm"
           onMouseDown={closeImportPanel}
         >
           <Card
@@ -482,7 +482,7 @@ export function ProfilesPage() {
               <div
                 className={cn(
                   "relative min-h-[20rem] overflow-hidden rounded-md border border-dashed border-border bg-panelAlt transition-colors",
-                  importDragActive ? "border-accent/70 bg-[#1a2b44]" : ""
+                  importDragActive ? "border-accent/70 bg-importDrag" : ""
                 )}
                 onDragEnter={(event) => {
                   event.preventDefault();
@@ -678,7 +678,7 @@ export function ProfilesPage() {
       ) : null}
 
       {renaming ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 p-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlaySoft p-4">
           <Card className="w-full max-w-[420px] space-y-3">
             <div className="text-sm font-semibold">Rename Profile</div>
             <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} placeholder="Profile name" />

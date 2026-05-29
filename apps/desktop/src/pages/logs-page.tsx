@@ -60,7 +60,7 @@ export function LogsPage() {
           {filtered.map((line) => (
             <div key={line.id} className="grid grid-cols-[88px_70px_1fr] gap-3 rounded px-2 py-1 hover:bg-panel">
               <span className="text-textMuted">{formatShortLogTime(line.ts)}</span>
-              <span className={cn("uppercase", line.level === "error" ? "text-danger" : line.level === "warning" ? "text-warning" : "text-[#93c5fd]")}>
+              <span className={cn("uppercase", line.level === "error" ? "text-danger" : line.level === "warning" ? "text-warning" : "text-accent")}>
                 {line.level}
               </span>
               <span>{line.message}</span>

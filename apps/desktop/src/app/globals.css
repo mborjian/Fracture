@@ -8,13 +8,39 @@
   --color-background: #090d14;
   --color-panel: #101724;
   --color-panel-alt: #0e1622;
+  --color-panel-hover: #1b283b;
+  --color-overlay: rgba(0, 0, 0, 0.6);
+  --color-overlay-soft: rgba(0, 0, 0, 0.45);
+  --color-import-drag-bg: #1a2b44;
   --color-border: #1d2a3d;
   --color-text: #ebf0f8;
   --color-text-muted: #8ba1c0;
   --color-accent: #2e90fa;
+  --color-accent-hover: #4098fb;
   --color-success: #34d399;
   --color-warning: #f59e0b;
   --color-danger: #ef4444;
+  --color-danger-hover: #f05252;
+
+  --tone-neutral-bg: rgba(148, 163, 184, 0.08);
+  --tone-neutral-bg-hover: rgba(148, 163, 184, 0.14);
+  --tone-neutral-border: #3d4b63;
+  --tone-neutral-text: #c3cfde;
+
+  --tone-success-bg: rgba(34, 197, 94, 0.09);
+  --tone-success-bg-hover: rgba(34, 197, 94, 0.16);
+  --tone-success-border: #2b5f47;
+  --tone-success-text: #9ee6b9;
+
+  --tone-warning-bg: rgba(234, 179, 8, 0.08);
+  --tone-warning-bg-hover: rgba(234, 179, 8, 0.16);
+  --tone-warning-border: #6a5820;
+  --tone-warning-text: #f5dd9a;
+
+  --tone-danger-bg: rgba(239, 68, 68, 0.12);
+  --tone-danger-bg-hover: rgba(239, 68, 68, 0.18);
+  --tone-danger-border: #5b2020;
+  --tone-danger-text: #ffb4b4;
 }
 
 :root[data-theme="light"] {
@@ -22,13 +48,39 @@
   --color-background: #eef3fb;
   --color-panel: #ffffff;
   --color-panel-alt: #f4f7fb;
+  --color-panel-hover: #e7edf6;
+  --color-overlay: rgba(21, 34, 53, 0.18);
+  --color-overlay-soft: rgba(21, 34, 53, 0.12);
+  --color-import-drag-bg: #e8f1fb;
   --color-border: #cfd9e8;
   --color-text: #152235;
   --color-text-muted: #66788f;
   --color-accent: #1d73d8;
+  --color-accent-hover: #267edb;
   --color-success: #178f61;
   --color-warning: #c27a08;
   --color-danger: #d13f3f;
+  --color-danger-hover: #dc2626;
+
+  --tone-neutral-bg: #edf2f8;
+  --tone-neutral-bg-hover: #e1e8f2;
+  --tone-neutral-border: #c6d2e0;
+  --tone-neutral-text: #4f6179;
+
+  --tone-success-bg: #ecf8f1;
+  --tone-success-bg-hover: #ddf3e5;
+  --tone-success-border: #b8dec8;
+  --tone-success-text: #177a55;
+
+  --tone-warning-bg: #fff7e6;
+  --tone-warning-bg-hover: #ffefcf;
+  --tone-warning-border: #ead29b;
+  --tone-warning-text: #9b6205;
+
+  --tone-danger-bg: #fff0f0;
+  --tone-danger-bg-hover: #ffe3e3;
+  --tone-danger-border: #efc2c2;
+  --tone-danger-text: #b63333;
 }
 
 html,

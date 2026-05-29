@@ -46,20 +46,20 @@ function stateBadgeMeta(state: ConnectionState) {
     return {
       label: "Connected",
       bulletClass: "bg-success shadow-[0_0_12px_rgba(34,197,94,0.85)]",
-      badgeClass: "border-[#2b5f47] bg-[rgba(34,197,94,0.09)] text-[#9ee6b9]",
+      badgeClass: "border-[var(--tone-success-border)] bg-[var(--tone-success-bg)] text-[var(--tone-success-text)]",
     };
   }
   if (state === "starting") {
     return {
       label: "Connecting",
       bulletClass: "bg-warning shadow-[0_0_12px_rgba(234,179,8,0.85)]",
-      badgeClass: "border-[#6a5820] bg-[rgba(234,179,8,0.08)] text-[#f5dd9a]",
+      badgeClass: "border-[var(--tone-warning-border)] bg-[var(--tone-warning-bg)] text-[var(--tone-warning-text)]",
     };
   }
   return {
     label: "Disconnected",
     bulletClass: "bg-slate-400 shadow-[0_0_12px_rgba(148,163,184,0.8)]",
-    badgeClass: "border-[#3d4b63] bg-[rgba(148,163,184,0.08)] text-[#c3cfde]",
+    badgeClass: "border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] text-[var(--tone-neutral-text)]",
   };
 }
 

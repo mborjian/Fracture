@@ -7,10 +7,10 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        default: "bg-accent text-white hover:bg-[#267edb]",
-        secondary: "bg-panelAlt border border-border text-text hover:bg-[#1b283b]",
+        default: "bg-accent text-white hover:bg-accentHover",
+        secondary: "bg-panelAlt border border-border text-text hover:bg-panelHover",
         ghost: "bg-transparent text-textMuted hover:text-text hover:bg-panelAlt",
-        danger: "bg-danger text-white hover:bg-[#dc2626]"
+        danger: "bg-danger text-white hover:bg-dangerHover"
       },
       size: {
         default: "h-9 px-4 py-2",
