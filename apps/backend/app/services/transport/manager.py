@@ -1,22 +1,31 @@
 import asyncio
 import os
+import requests
 import socket
+import socks
 import threading
+import time
 from typing import Optional
 
 from .packet_templates import ClientHelloMaker
+from .socks5 import Socks5Server
 from .tcp_injector import TcpInjector, FakeInjectiveConnection
 
 _injector_thread: Optional[threading.Thread] = None
 _connections: dict = {}
 _running = False
+_socks_server: Optional[Socks5Server] = None
+_socks_loop: Optional[asyncio.AbstractEventLoop] = None
+_active_socks_port: Optional[int] = None
 
 
-def start_injector(interface_ipv4: str, connect_ip: str, connect_port: int, fake_sni: bytes):
-    """Launch the WinDivert injector in a background thread."""
-    global _injector_thread, _connections, _running
+def start_injector(interface_ipv4: str, connect_ip: str, connect_port: int, fake_sni: bytes, socks_port: int):
+    """Launch the WinDivert injector in a background thread and start SOCKS5 proxy."""
+    global _injector_thread, _connections, _running, _socks_server, _socks_loop, _active_socks_port
+
     if _running:
         stop_injector()
+
     _connections.clear()
     w_filter = (
         f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip}) or "
@@ -24,21 +33,97 @@ def start_injector(interface_ipv4: str, connect_ip: str, connect_port: int, fake
     )
     injector = TcpInjector(w_filter, _connections)
     _running = True
+    _active_socks_port = socks_port
 
+    # Start WinDivert capture thread
     def _run():
         injector.run()
 
     _injector_thread = threading.Thread(target=_run, daemon=True)
     _injector_thread.start()
+
+    # Start SOCKS5 proxy in its own asyncio loop
+    _socks_loop = asyncio.new_event_loop()
+    _socks_server = Socks5Server("127.0.0.1", socks_port, interface_ipv4, connect_ip, connect_port, fake_sni)
+
+    def _run_proxy():
+        asyncio.set_event_loop(_socks_loop)
+        _socks_loop.run_until_complete(_socks_server.start())
+        _socks_loop.run_forever()
+
+    threading.Thread(target=_run_proxy, daemon=True).start()
     return True
 
 
 def stop_injector():
-    global _running, _injector_thread
+    """Stop WinDivert injector and SOCKS5 proxy."""
+    global _running, _injector_thread, _socks_server, _socks_loop, _active_socks_port
     _running = False
-    # WinDivert context will be released when thread exits (no explicit stop)
+
+    if _socks_server and _socks_loop:
+        async def _stop():
+            await _socks_server.stop()
+
+        asyncio.run_coroutine_threadsafe(_stop(), _socks_loop)
+        _socks_loop.call_soon_threadsafe(_socks_loop.stop)
+        _socks_server = None
+        _socks_loop = None
+
     _injector_thread = None
     _connections.clear()
+    _active_socks_port = None
+
+
+def get_active_socks_port() -> Optional[int]:
+    """Return the SOCKS port currently used by the injector, if any."""
+    return _active_socks_port
+
+
+def test_delay_via_socks5(timeout_s: float = 3.0) -> float:
+    """
+    Measure latency (ms) to www.gstatic.com:443 through the active SOCKS5 proxy.
+    """
+    port = get_active_socks_port()
+    if not port:
+        raise RuntimeError("No active SOCKS5 proxy")
+    proxies = {
+        'http': f'socks5://127.0.0.1:{port}',
+        'https': f'socks5://127.0.0.1:{port}'
+    }
+    start = time.perf_counter()
+    try:
+        # A simple GET request (small) to a reliable server
+        requests.get("https://www.gstatic.com/generate_204", proxies=proxies, timeout=timeout_s)
+        return (time.perf_counter() - start) * 1000.0
+    except Exception as e:
+        raise TimeoutError(f"SOCKS5 delay test failed: {e}")
+
+
+def test_speed_via_socks5(timeout_s: float = 5.0) -> float:
+    """
+    Download a 1 MB test file via SOCKS5 proxy and return throughput (bytes/sec).
+    """
+    port = get_active_socks_port()
+    if not port:
+        raise RuntimeError("No active SOCKS5 proxy")
+    proxies = {
+        'http': f'socks5://127.0.0.1:{port}',
+        'https': f'socks5://127.0.0.1:{port}'
+    }
+    url = "https://cachefly.cachefly.net/1mb.test"
+    start = time.perf_counter()
+    total_bytes = 0
+    try:
+        with requests.get(url, stream=True, proxies=proxies, timeout=timeout_s) as r:
+            for chunk in r.iter_content(65535):
+                if chunk:
+                    total_bytes += len(chunk)
+                    if time.perf_counter() - start >= timeout_s:
+                        break
+        elapsed = max(time.perf_counter() - start, 0.001)
+        return total_bytes / elapsed
+    except Exception as e:
+        raise TimeoutError(f"SOCKS5 speed test failed: {e}")
 
 
 async def establish_connection(

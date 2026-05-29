@@ -9,7 +9,7 @@ export type ConnectionState = "stopped" | "starting" | "running" | "error";
 
 export interface CoreStatus {
   state: ConnectionState;
-  runtime: "sing-box" | null;
+  runtime: "sing-box" | "tcp-inject" | null;
   activeProfileId: string | null;
   uptimeSeconds: number;
   latencyMs: number | null;

@@ -129,7 +129,8 @@ export function DashboardPage() {
           throw new Error(next.lastError || "Connection failed to start");
         }
         setStatus(next);
-        toast.success("Connection started with sing-box");
+        const runtimeName = next.runtime === "tcp-inject" ? "TCP injector" : "sing-box";
+        toast.success(`Connection started with ${runtimeName}`);
       }
     } catch (error) {
       setPendingAction("idle");

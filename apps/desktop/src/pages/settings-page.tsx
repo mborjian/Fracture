@@ -17,7 +17,7 @@ const DEFAULT_CORE: CoreSettings = {
   proxyPort: 2080,
   socksPort: 2081,
   autoReconnect: true,
-  transportMode: "singbox"
+  transportMode: "tcp-inject"
 };
 
 const DEFAULT_UI: UiSettings = {
@@ -469,14 +469,14 @@ export function SettingsPage() {
           <h3 className="mb-4 text-sm font-semibold">Transport Mode</h3>
           <ToggleGroup
             type="single"
-            value={coreDraft.transportMode || "singbox"}
+            value={coreDraft.transportMode || "tcp-inject"}
             onValueChange={(value) => {
               if (value) void saveProxySettings({ ...coreDraft, transportMode: value as "singbox" | "tcp-inject" });
             }}
             className="w-full"
           >
-            <ToggleGroupItem value="singbox" className="flex-1">Standard (sing‑box)</ToggleGroupItem>
             <ToggleGroupItem value="tcp-inject" className="flex-1">TCP Inject (Fake TLS)</ToggleGroupItem>
+            <ToggleGroupItem value="singbox" className="flex-1">Standard (sing‑box)</ToggleGroupItem>
           </ToggleGroup>
           <p className="text-xs text-textMuted mt-2">
             TCP Inject mode uses wrong_seq packet injection to bypass DPI. Requires administrator privileges.

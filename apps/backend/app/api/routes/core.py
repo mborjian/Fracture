@@ -38,9 +38,13 @@ async def core_start(payload: StartPayload, request: Request) -> dict:
             raise HTTPException(status_code=400, detail="No profiles available")
         profile_id = profiles[0]["id"]
 
-    status = await runtime_service.start("sing-box", profile_id)
+    # Get transport mode from core settings
+    core_settings = await fetch_core_settings()
+    runtime = "tcp-inject" if core_settings.get("transportMode") == "tcp-inject" else "sing-box"
+
+    status = await runtime_service.start(runtime, profile_id)
     if status.get("state") != "running" or not status.get("ready", False):
-        raise HTTPException(status_code=500, detail="Failed to start sing-box")
+        raise HTTPException(status_code=500, detail="Failed to start runtime")
     return status
 
 

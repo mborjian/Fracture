@@ -31,6 +31,7 @@ from app.services.singbox import (
     stop_instance,
 )
 from app.services.transport import manager as transport_manager
+from app.services.transport.traffic import fetch_egress_via_socks5
 
 CoreRuntime = Literal["sing-box"]
 ConnectionState = Literal["stopped", "starting", "running", "error"]
@@ -218,6 +219,10 @@ class CoreRuntimeService:
             await self._emit_status_locked()
             return self._status.as_dict()
 
+    def get_runtime_mode(self) -> str:
+        """Return current runtime mode: 'sing-box' or 'tcp-inject'."""
+        return self._status.runtime or "sing-box"
+
     @staticmethod
     def _binary_name(runtime: CoreRuntime) -> str:
         return "sing-box.exe" if settings.root_dir.drive else "sing-box"
@@ -324,7 +329,8 @@ class CoreRuntimeService:
 
         interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
         # Start the background injector
-        transport_manager.start_injector(interface_ipv4, connect_ip, connect_port, fake_sni.encode())
+        socks_port = int(core_settings.get("socksPort", 2081))
+        transport_manager.start_injector(interface_ipv4, connect_ip, connect_port, fake_sni.encode(), socks_port)
 
         # Now we need to "claim" that the runtime is ready – but the actual per‑connection
         # injection will happen inside handle() of the main TCP listener.
@@ -378,7 +384,34 @@ class CoreRuntimeService:
         while True:
             await asyncio.sleep(1)
             async with self._lock:
-                if self._status.state != "running" or self._instance is None:
+                if self._status.state != "running":
+                    return
+
+                # ---- TCP inject mode branch ----
+                if self._status.runtime == "tcp-inject":
+                    now = time.monotonic()
+                    elapsed = now - self._last_sample_monotonic if self._last_sample_monotonic is not None else 1.0
+                    self._last_sample_monotonic = now
+
+                    # Get traffic from the SOCKS5 relay
+                    down = _traffic.download_bytes
+                    up = _traffic.upload_bytes
+
+                    self._status.download_bps = down / elapsed
+                    self._status.upload_bps = up / elapsed
+                    self._status.session_download_bytes += down
+                    self._status.session_upload_bytes += up
+
+                    # Reset traffic counters for next second
+                    _traffic.download_bytes = 0
+                    _traffic.upload_bytes = 0
+
+                    await self._refresh_egress_info_locked()
+                    await self._emit_status_locked()
+                    continue
+
+                # ---- sing-box mode (existing logic) ----
+                if self._instance is None:
                     return
                 process = self._instance.process
                 if process.returncode is not None:
@@ -391,6 +424,7 @@ class CoreRuntimeService:
                     await self._emit_log_locked("error", "runtime exited unexpectedly")
                     await self._emit_status_locked()
                     return
+
                 now = time.monotonic()
                 elapsed = 0.0 if self._last_sample_monotonic is None else max(0.0, now - self._last_sample_monotonic)
                 self._last_sample_monotonic = now
@@ -401,9 +435,23 @@ class CoreRuntimeService:
                 await self._emit_status_locked()
 
     async def _refresh_egress_info_locked(self) -> None:
-        if self._status.state != "running" or self._instance is None:
+        if self._status.state != "running":
             return
 
+        # For TCP inject mode, use SOCKS5 proxy to fetch egress info
+        if self._status.runtime == "tcp-inject":
+            socks_port = transport_manager.get_active_socks_port()
+            if socks_port:
+                ip, country = await fetch_egress_via_socks5(socks_port)
+                if ip:
+                    self._status.egress_ip = ip
+                if country:
+                    self._status.egress_country = country
+            return
+
+        # For sing-box mode, use the existing HTTP proxy method
+        if self._instance is None:
+            return
         try:
             payload = await asyncio.to_thread(self._lookup_egress_via_http_proxy, self._instance.http_port)
         except Exception:

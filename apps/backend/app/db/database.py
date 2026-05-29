@@ -44,7 +44,7 @@ _DEFAULT_APP_SETTINGS_DOC: dict[str, Any] = {
         "proxyPort": 2080,
         "socksPort": 2081,
         "autoReconnect": True,
-        "transportMode": "singbox",  # "singbox" or "tcp-inject"
+        "transportMode": "tcp-inject",  # "singbox" or "tcp-inject"
     },
     "ui": {
         "theme": "system",

@@ -14,6 +14,7 @@ from app.db.database import (
 )
 from app.services.runtime import CoreRuntimeService
 from app.services.singbox import record_to_profile, stop_all_warm_instances, test_delay, test_speed
+from app.services.transport import manager as transport_manager
 
 
 @dataclass
@@ -28,9 +29,9 @@ ProbeMode = str
 
 class ProfilePingService:
     def __init__(
-        self,
-        publish_event: Callable[[str, dict], Awaitable[None]],
-        runtime_service: CoreRuntimeService,
+            self,
+            publish_event: Callable[[str, dict], Awaitable[None]],
+            runtime_service: CoreRuntimeService,
     ) -> None:
         self._publish_event = publish_event
         self._runtime_service = runtime_service
@@ -250,21 +251,37 @@ class ProfilePingService:
         }
 
     def _delay_probe_sync(self, profile_record: dict, routing: dict, probe_mode: ProbeMode) -> dict:
+        # Check current runtime mode
+        mode = self._runtime_service.get_runtime_mode()
+        if mode == "tcp-inject":
+            try:
+                timeout = 3.0 if probe_mode == "quick" else 6.0
+                latency_ms = transport_manager.test_delay_via_socks5(timeout_s=timeout)
+                return {"ok": True, "latencyMs": max(1, int(latency_ms))}
+            except Exception as exc:
+                return {"ok": False, "latencyMs": -1, "error": str(exc)}
+        # Else sing-box mode
         binary_path = settings.singbox_dir / self._runtime_service._binary_name("sing-box")
         if not binary_path.exists():
             return {"ok": False, "latencyMs": None, "error": f"sing-box binary not found at {binary_path}"}
-
         try:
             latency_ms = test_delay(record_to_profile(profile_record), binary_path, routing=routing, mode=probe_mode)
             return {"ok": True, "latencyMs": max(1, int(latency_ms))}
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return {"ok": False, "latencyMs": -1, "error": str(exc)}
 
     def _speed_probe_sync(self, profile_record: dict, routing: dict, timeout_s: float, probe_mode: ProbeMode) -> dict:
+        mode = self._runtime_service.get_runtime_mode()
+        if mode == "tcp-inject":
+            try:
+                bytes_per_sec = transport_manager.test_speed_via_socks5(timeout_s=timeout_s)
+                return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
+            except Exception as exc:
+                return {"ok": False, "speedMBps": 0.0, "error": str(exc)}
+        # Else sing-box mode
         binary_path = settings.singbox_dir / self._runtime_service._binary_name("sing-box")
         if not binary_path.exists():
             return {"ok": False, "speedMBps": None, "error": f"sing-box binary not found at {binary_path}"}
-
         try:
             effective_seconds = min(timeout_s, 4.0) if probe_mode == "quick" else min(timeout_s, 10.0)
             bytes_per_sec = test_speed(
@@ -275,5 +292,5 @@ class ProfilePingService:
                 mode=probe_mode,
             )
             return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return {"ok": False, "speedMBps": 0.0, "error": str(exc)}
