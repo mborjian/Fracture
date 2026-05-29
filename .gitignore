@@ -1,0 +1,85 @@
+# OS / editors
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+*.tmp
+*.temp
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.local
+
+# Node / React / Vite
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+**/build/
+.vite/
+**/.vite/
+.turbo/
+.cache/
+coverage/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Rust / Tauri
+target/
+**/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/.tauri/
+*.rs.bk
+
+# Python / FastAPI backend
+.venv/
+venv/
+env/
+**/.venv/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.pyd
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+*.egg-info/
+
+# PyInstaller / backend release artifacts
+apps/backend/dist/
+apps/backend/build/
+apps/backend/*.spec
+
+# Runtime app data
+configs/*
+!configs/.gitkeep
+data/*
+!data/.gitkeep
+*.db
+*.sqlite
+*.sqlite3
+
+# Local binaries and downloaded cores
+binaries/*
+!binaries/.gitkeep
+sing-box/*
+!sing-box/.gitkeep
+*.exe
+*.dll
+
+# Logs
+logs/
+*.log
