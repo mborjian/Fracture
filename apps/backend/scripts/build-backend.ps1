@@ -44,6 +44,7 @@ Invoke-CheckedCommand -Command {
   & $PythonExe -m PyInstaller `
   --onefile `
   --name fracture-backend `
+  --hidden-import eval_type_backport `
   --distpath $distPath `
   --workpath $workPath `
   --specpath $workPath `
