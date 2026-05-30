@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections import deque
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -12,20 +13,27 @@ class WsEventHub:
     def __init__(self) -> None:
         self._connections: set[WebSocket] = set()
         self._lock = asyncio.Lock()
+        self._recent_logs: deque[dict] = deque(maxlen=1500)
 
     async def connect(self, websocket: WebSocket) -> None:
         await websocket.accept()
         async with self._lock:
             self._connections.add(websocket)
 
+    async def recent_logs(self) -> list[dict]:
+        async with self._lock:
+            return [dict(item) for item in self._recent_logs]
+
     async def disconnect(self, websocket: WebSocket) -> None:
         async with self._lock:
             self._connections.discard(websocket)
 
     async def publish(self, event_type: str, payload: dict) -> None:
-        message = json.dumps({"type": event_type, "payload": payload}, ensure_ascii=True)
         async with self._lock:
+            if event_type == "log" and isinstance(payload, dict):
+                self._recent_logs.append(dict(payload))
             sockets = list(self._connections)
+        message = json.dumps({"type": event_type, "payload": payload}, ensure_ascii=True)
 
         stale: list[WebSocket] = []
         for socket in sockets:

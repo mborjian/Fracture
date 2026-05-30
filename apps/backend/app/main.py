@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -58,6 +59,8 @@ async def ws_events(websocket: WebSocket) -> None:
     await hub.connect(websocket)
 
     try:
+        for log_event in await hub.recent_logs():
+            await websocket.send_text(json.dumps({"type": "log", "payload": log_event}, ensure_ascii=True))
         await hub.publish("status", await runtime.get_status())
         while True:
             await websocket.receive_text()

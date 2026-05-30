@@ -590,7 +590,9 @@ export function ProfilesPage() {
                 }}
                 className={cn(
                   "w-full cursor-move p-3 transition-all",
-                  active ? "border-success shadow-[0_0_0_1px_rgba(34,197,94,0.45),0_0_22px_rgba(34,197,94,0.3)]" : "",
+                  active
+                    ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
+                    : "",
                   draggingId === profile.id ? "opacity-80" : ""
                 )}
                 onClick={() => void handleSelectActive(profile.id)}

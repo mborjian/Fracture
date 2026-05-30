@@ -109,6 +109,8 @@ class CoreRuntimeService:
     async def set_active_profile(self, profile_id: str | None) -> dict:
         async with self._lock:
             self._status.active_profile_id = profile_id
+            if profile_id:
+                await self._emit_log_locked("info", f"active profile selected: {profile_id}")
             await self._emit_status_locked()
             return self._status.as_dict()
 
@@ -136,6 +138,7 @@ class CoreRuntimeService:
             self._last_sample_monotonic = None
             await self._refresh_runtime_metadata_locked()
             await self._emit_status_locked()
+            await self._emit_log_locked("info", f"starting runtime={runtime} profile={profile_id or 'auto'}")
 
             try:
                 await self._spawn_runtime_locked()
@@ -145,7 +148,7 @@ class CoreRuntimeService:
                 self._last_sample_monotonic = time.monotonic()
                 self._start_sampler_locked()
                 await self._refresh_egress_info_locked()
-                await self._emit_log_locked("info", "runtime=sing-box started")
+                await self._emit_log_locked("info", f"runtime={runtime} started")
             except Exception as exc:  # noqa: BLE001
                 await self._cleanup_instance_locked()
                 self._status.state = "error"
@@ -289,7 +292,8 @@ class CoreRuntimeService:
         transport_mode = core_settings.get("transportMode", "singbox")
 
         if transport_mode == "tcp-inject":
-            # Use TCP injection instead of sing‑box
+            # Use TCP injection instead of sing-box
+            await self._emit_log_locked("info", f"runtime mode=tcp-inject profile={profile_id}")
             await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
             return
 
@@ -298,6 +302,10 @@ class CoreRuntimeService:
         socks_port = int(core_settings.get("socksPort", 2081))
         listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
         self._status.listen_host = listen_host
+        await self._emit_log_locked(
+            "debug",
+            f"runtime mode=sing-box profile={profile_id} network={mode} listen={listen_host}:{http_port}/{socks_port}",
+        )
 
         instance = await asyncio.to_thread(
             start_profile,
@@ -331,6 +339,10 @@ class CoreRuntimeService:
         # Start the background injector
         socks_port = int(core_settings.get("socksPort", 2081))
         transport_manager.start_injector(interface_ipv4, connect_ip, connect_port, fake_sni.encode(), socks_port)
+        await self._emit_log_locked(
+            "debug",
+            f"tcp-inject interface={interface_ipv4} target={connect_ip}:{connect_port} socks={socks_port}",
+        )
 
         # Now we need to "claim" that the runtime is ready – but the actual per‑connection
         # injection will happen inside handle() of the main TCP listener.
@@ -442,11 +454,15 @@ class CoreRuntimeService:
         if self._status.runtime == "tcp-inject":
             socks_port = transport_manager.get_active_socks_port()
             if socks_port:
-                ip, country = await fetch_egress_via_socks5(socks_port)
-                if ip:
-                    self._status.egress_ip = ip
-                if country:
-                    self._status.egress_country = country
+                try:
+                    ip, country = await fetch_egress_via_socks5(socks_port)
+                except Exception as exc:  # noqa: BLE001
+                    await self._emit_log_locked("warning", f"egress lookup via socks5 failed: {exc}")
+                else:
+                    if ip:
+                        self._status.egress_ip = ip
+                    if country:
+                        self._status.egress_country = country
             return
 
         # For sing-box mode, use the existing HTTP proxy method
@@ -454,7 +470,8 @@ class CoreRuntimeService:
             return
         try:
             payload = await asyncio.to_thread(self._lookup_egress_via_http_proxy, self._instance.http_port)
-        except Exception:
+        except Exception as exc:  # noqa: BLE001
+            await self._emit_log_locked("warning", f"egress lookup via http proxy failed: {exc}")
             return
 
         ip = payload.get("ip")
@@ -484,7 +501,14 @@ class CoreRuntimeService:
         await self._publish_event("status", self._status.as_dict())
 
     async def _emit_log_locked(self, level: str, message: str) -> None:
-        logger.info(message)
+        level_map = {
+            "debug": logging.DEBUG,
+            "info": logging.INFO,
+            "warning": logging.WARNING,
+            "error": logging.ERROR,
+            "critical": logging.CRITICAL,
+        }
+        logger.log(level_map.get(level, logging.INFO), message)
         await self._publish_event(
             "log",
             {

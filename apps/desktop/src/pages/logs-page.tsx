@@ -8,6 +8,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 const LOG_FILTERS = [
   { id: "all", label: "All" },
   { id: "info", label: "Info" },
+  { id: "debug", label: "Debug" },
   { id: "warning", label: "Warn" },
   { id: "error", label: "Error" },
 ] as const;
@@ -25,19 +26,29 @@ export function LogsPage() {
   const clearLogs = useAppStore((s) => s.clearLogs);
   const [filter, setFilter] = useState<(typeof LOG_FILTERS)[number]["id"]>("all");
 
+  const sortedLogs = useMemo(
+    () =>
+      [...logs].sort((left, right) => {
+        const timeDiff = Date.parse(right.ts) - Date.parse(left.ts);
+        if (Number.isFinite(timeDiff) && timeDiff !== 0) return timeDiff;
+        return right.id.localeCompare(left.id);
+      }),
+    [logs]
+  );
+
   const filtered = useMemo(
     () =>
-      logs.filter((line) => {
+      sortedLogs.filter((line) => {
         if (filter === "all") return true;
         return line.level === filter;
       }),
-    [filter, logs]
+    [filter, sortedLogs]
   );
 
   return (
     <section className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <ToggleGroup type="single" value={filter} className="mx-auto w-[280px]"
+        <ToggleGroup type="single" value={filter} className="mx-auto w-[352px]"
           onValueChange={(value) => {
             if (value) setFilter(value as LogFilter);
           }}

@@ -12,7 +12,7 @@ interface AppState {
   clearLogs: () => void;
 }
 
-export const useAppStore = create<AppState>((set) => ({
+export const useAppStore = create<AppState>((set, get) => ({
   page: "dashboard",
   connectionState: "stopped",
   status: null,
@@ -23,9 +23,13 @@ export const useAppStore = create<AppState>((set) => ({
       status,
       connectionState: status.state
     }),
-  addLog: (log) =>
+  addLog: (log) => {
+    if (get().logs.some((entry) => entry.id === log.id)) {
+      return;
+    }
     set((state) => ({
       logs: [log, ...state.logs].slice(0, 1500)
-    })),
+    }));
+  },
   clearLogs: () => set({ logs: [] })
 }));

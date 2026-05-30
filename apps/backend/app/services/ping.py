@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from app.core.config import settings
 from app.db.database import (
@@ -40,6 +41,18 @@ class ProfilePingService:
         self._delay_parallelism = 4
         self._speed_parallelism = 3
 
+    async def _emit_log(self, level: str, message: str) -> None:
+        now = datetime.now(timezone.utc)
+        await self._publish_event(
+            "log",
+            {
+                "id": str(uuid4()),
+                "ts": now.isoformat(),
+                "level": level,
+                "message": message,
+            },
+        )
+
     async def ping_profile(self, profile_id: str, timeout_s: float = 8.0, probe_mode: ProbeMode = "quick") -> dict:
         profile = await fetch_profile_by_id(profile_id)
         if profile is None:
@@ -63,6 +76,16 @@ class ProfilePingService:
             "at": now_iso,
         }
         await self._publish_event("ping", payload)
+        if result["ok"]:
+            await self._emit_log(
+                "info",
+                f"delay profile={profile_id} latency={result['latencyMs']} ms mode={probe_mode}",
+            )
+        else:
+            await self._emit_log(
+                "warning",
+                f"delay profile={profile_id} failed: {result.get('error') or 'unknown error'}",
+            )
         return payload
 
     async def ping_all(self, profile_ids: list[str], timeout_s: float = 8.0, probe_mode: ProbeMode = "quick") -> dict:
@@ -72,6 +95,8 @@ class ProfilePingService:
             self._state.running = True
             self._state.cancel_requested = False
             self._state.mode = "delay"
+
+        await self._emit_log("info", f"delay test started profiles={len(profile_ids)} mode={probe_mode}")
 
         completed = 0
         successes = 0
@@ -93,6 +118,10 @@ class ProfilePingService:
                 "cancelled": cancelled,
             }
             await self._publish_event("ping-summary", summary)
+            await self._emit_log(
+                "info",
+                f"delay test finished completed={completed} ok={successes} failed={failures}{' cancelled' if cancelled else ''}",
+            )
             return summary
         finally:
             await asyncio.to_thread(stop_all_warm_instances)
@@ -131,6 +160,16 @@ class ProfilePingService:
             "at": now_iso,
         }
         await self._publish_event("speed", payload)
+        if result["ok"]:
+            await self._emit_log(
+                "info",
+                f"speed profile={profile_id} throughput={result['speedMBps']} MB/s mode={probe_mode}",
+            )
+        else:
+            await self._emit_log(
+                "warning",
+                f"speed profile={profile_id} failed: {result.get('error') or 'unknown error'}",
+            )
         return payload
 
     async def speed_all(self, profile_ids: list[str], timeout_s: float = 15.0, probe_mode: ProbeMode = "quick") -> dict:
@@ -140,6 +179,8 @@ class ProfilePingService:
             self._state.running = True
             self._state.cancel_requested = False
             self._state.mode = "speed"
+
+        await self._emit_log("info", f"speed test started profiles={len(profile_ids)} mode={probe_mode}")
 
         completed = 0
         successes = 0
@@ -161,6 +202,10 @@ class ProfilePingService:
                 "cancelled": cancelled,
             }
             await self._publish_event("speed-summary", summary)
+            await self._emit_log(
+                "info",
+                f"speed test finished completed={completed} ok={successes} failed={failures}{' cancelled' if cancelled else ''}",
+            )
             return summary
         finally:
             await asyncio.to_thread(stop_all_warm_instances)
@@ -216,6 +261,7 @@ class ProfilePingService:
                                 "at": now_iso,
                             },
                         )
+                        await self._emit_log("warning", f"delay profile={profile_id} failed: {exc}")
                     else:
                         await save_profile_speed_result(profile_id, 0.0, now_iso)
                         await self._publish_event(
@@ -228,6 +274,7 @@ class ProfilePingService:
                                 "at": now_iso,
                             },
                         )
+                        await self._emit_log("warning", f"speed profile={profile_id} failed: {exc}")
                     ok = False
 
                 async with counter_lock:

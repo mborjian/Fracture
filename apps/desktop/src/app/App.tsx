@@ -1,5 +1,5 @@
 import { useEffect, type ComponentType } from "react";
-import { CircleHelp, Cog, LayoutDashboard, ListTree, Logs } from "lucide-react";
+import { CircleHelp, Cog, FileText, LayoutDashboard, ListTree } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ const TOP_NAV: Array<{ id: NavPage; label: string; icon: ComponentType<{ classNa
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard },
   { id: "profiles", label: "Profiles", icon: ListTree },
   { id: "settings", label: "Settings", icon: Cog },
-  { id: "logs", label: "Logs", icon: Logs },
+  { id: "logs", label: "Logs", icon: FileText },
   { id: "about", label: "About", icon: CircleHelp },
 ];
 
