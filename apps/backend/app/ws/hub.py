@@ -47,13 +47,17 @@ class WsEventHub:
                 for socket in stale:
                     self._connections.discard(socket)
 
-    async def publish_log(self, level: str, message: str) -> None:
+    async def publish_log(self, level: str, message: str, *, source: str = "backend", trace: str | None = None) -> None:
+        payload = {
+            "id": str(uuid4()),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+            "source": source,
+        }
+        if trace:
+            payload["trace"] = trace
         await self.publish(
             "log",
-            {
-                "id": str(uuid4()),
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "level": level,
-                "message": message,
-            },
+            payload,
         )

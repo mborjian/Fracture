@@ -54,14 +54,16 @@ app.include_router(settings_router)
 
 
 class UiLogPayload(BaseModel):
-    level: str = Field(pattern="^(debug|info|warning|error)$")
-    message: str = Field(min_length=1, max_length=1000)
+  level: str = Field(pattern="^(debug|info|warning|error)$")
+  message: str = Field(min_length=1, max_length=1000)
+  source: str = Field(default="ui", min_length=1, max_length=64)
+  trace: str | None = Field(default=None, max_length=20000)
 
 
 @app.post("/api/logs")
 async def app_log(payload: UiLogPayload) -> dict:
     hub: WsEventHub = app.state.ws_hub
-    await hub.publish_log(payload.level, payload.message)
+    await hub.publish_log(payload.level, payload.message, source=payload.source, trace=payload.trace)
     return {"ok": True}
 
 

@@ -114,23 +114,25 @@ export function DashboardPage() {
   const toggle = async () => {
     try {
       if (isConnected || state === "starting") {
-        void api.logUiEvent("debug", "Disconnect requested from dashboard").catch(() => {
+        void api.logUiEvent("debug", "Disconnect requested from dashboard", { source: "dashboard" }).catch(() => {
           addLog({
             id: `ui-disconnect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             ts: new Date().toISOString(),
             level: "debug",
-            message: "Disconnect requested from dashboard"
+            message: "Disconnect requested from dashboard",
+            source: "dashboard"
           });
         });
         setPendingAction("disconnecting");
         const next = await api.stop();
         setStatus(next);
-        void api.logUiEvent("info", "Disconnected from dashboard").catch(() => {
+        void api.logUiEvent("info", "Disconnected from dashboard", { source: "dashboard" }).catch(() => {
           addLog({
             id: `ui-disconnect-info-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             ts: new Date().toISOString(),
             level: "info",
-            message: "Disconnected from dashboard"
+            message: "Disconnected from dashboard",
+            source: "dashboard"
           });
         });
         toast.success("Disconnected");
@@ -143,14 +145,16 @@ export function DashboardPage() {
         void api
           .logUiEvent(
             "debug",
-            `Connect requested from dashboard using profile ${status?.activeProfileId ?? "auto"}`
+            `Connect requested from dashboard using profile ${status?.activeProfileId ?? "auto"}`,
+            { source: "dashboard" }
           )
           .catch(() => {
             addLog({
               id: `ui-connect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
               ts: new Date().toISOString(),
               level: "debug",
-              message: `Connect requested from dashboard using profile ${status?.activeProfileId ?? "auto"}`
+              message: `Connect requested from dashboard using profile ${status?.activeProfileId ?? "auto"}`,
+              source: "dashboard"
             });
           });
         setPendingAction("connecting");
@@ -160,13 +164,18 @@ export function DashboardPage() {
         }
         setStatus(next);
         void api
-          .logUiEvent("info", `Connected from dashboard with ${next.runtime === "tcp-inject" ? "TCP injector" : "sing-box"}`)
+          .logUiEvent(
+            "info",
+            `Connected from dashboard with ${next.runtime === "tcp-inject" ? "TCP injector" : "sing-box"}`,
+            { source: "dashboard" }
+          )
           .catch(() => {
             addLog({
               id: `ui-connect-info-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
               ts: new Date().toISOString(),
               level: "info",
-              message: `Connected from dashboard with ${next.runtime === "tcp-inject" ? "TCP injector" : "sing-box"}`
+              message: `Connected from dashboard with ${next.runtime === "tcp-inject" ? "TCP injector" : "sing-box"}`,
+              source: "dashboard"
             });
           });
         const runtimeName = next.runtime === "tcp-inject" ? "TCP injector" : "sing-box";
@@ -175,13 +184,18 @@ export function DashboardPage() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       void api
-        .logUiEvent("error", `Connection failed: ${message}`)
+        .logUiEvent("error", `Connection failed: ${message}`, {
+          source: "dashboard",
+          trace: error instanceof Error ? error.stack ?? undefined : undefined
+        })
         .catch(() => {
           addLog({
             id: `ui-connect-error-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
             ts: new Date().toISOString(),
             level: "error",
-            message: `Connection failed: ${message}`
+            message: `Connection failed: ${message}`,
+            source: "dashboard",
+            trace: error instanceof Error ? error.stack ?? undefined : undefined
           });
         });
       setPendingAction("idle");

@@ -236,10 +236,11 @@ fn call_local_api(method: &str, path: &str, body: &str) -> Result<String, String
     Ok(String::new())
 }
 
-fn emit_ui_log(level: &str, message: &str) {
+fn emit_ui_log(level: &str, message: &str, source: &str) {
     let payload = serde_json::json!({
         "level": level,
         "message": message,
+        "source": source,
     });
     let _ = call_local_api("POST", "/api/logs", &payload.to_string());
 }
@@ -333,22 +334,22 @@ fn tray_toggle_connection(app: &AppHandle) {
         let status = read_runtime_status();
         let was_connecting = status.state == "running" || status.state == "starting";
         let result = if was_connecting {
-            emit_ui_log("debug", "Disconnect requested from tray");
+            emit_ui_log("debug", "Disconnect requested from tray", "tray");
             call_local_api("POST", "/api/core/stop", "{}")
         } else {
-            emit_ui_log("debug", "Connect requested from tray");
+            emit_ui_log("debug", "Connect requested from tray", "tray");
             call_local_api("POST", "/api/core/start", r#"{"profile_id":null}"#)
         };
         match result {
             Ok(_) => {
                 if was_connecting {
-                    emit_ui_log("info", "Disconnected from tray");
+                    emit_ui_log("info", "Disconnected from tray", "tray");
                 } else {
-                    emit_ui_log("info", "Connected from tray");
+                    emit_ui_log("info", "Connected from tray", "tray");
                 }
             }
             Err(error) => {
-                emit_ui_log("error", &format!("Tray connection action failed: {error}"));
+                emit_ui_log("error", &format!("Tray connection action failed: {error}"), "tray");
             }
         }
         refresh_tray_menu(&app_handle);

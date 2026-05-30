@@ -102,6 +102,8 @@ export interface LogEvent {
   ts: string;
   level: "debug" | "info" | "warning" | "error";
   message: string;
+  source?: string;
+  trace?: string;
 }
 
 export interface WsEvent<T = unknown> {

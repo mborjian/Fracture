@@ -7,6 +7,7 @@ import logging
 import socket
 import time
 import urllib.error
+import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -155,7 +156,11 @@ class CoreRuntimeService:
                 self._status.started_at = None
                 self._status.ready = False
                 self._status.last_error = str(exc)
-                await self._emit_log_locked("error", f"failed to start runtime: {exc}")
+                await self._emit_log_locked(
+                    "error",
+                    f"failed to start runtime: {exc}",
+                    trace=traceback.format_exc(),
+                )
 
             await self._emit_status_locked()
             return self._status.as_dict()
@@ -457,7 +462,11 @@ class CoreRuntimeService:
                 try:
                     ip, country = await fetch_egress_via_socks5(socks_port)
                 except Exception as exc:  # noqa: BLE001
-                    await self._emit_log_locked("warning", f"egress lookup via socks5 failed: {exc}")
+                    await self._emit_log_locked(
+                        "warning",
+                        f"egress lookup via socks5 failed: {exc}",
+                        trace=traceback.format_exc(),
+                    )
                 else:
                     if ip:
                         self._status.egress_ip = ip
@@ -471,7 +480,11 @@ class CoreRuntimeService:
         try:
             payload = await asyncio.to_thread(self._lookup_egress_via_http_proxy, self._instance.http_port)
         except Exception as exc:  # noqa: BLE001
-            await self._emit_log_locked("warning", f"egress lookup via http proxy failed: {exc}")
+            await self._emit_log_locked(
+                "warning",
+                f"egress lookup via http proxy failed: {exc}",
+                trace=traceback.format_exc(),
+            )
             return
 
         ip = payload.get("ip")
@@ -500,7 +513,7 @@ class CoreRuntimeService:
     async def _emit_status_locked(self) -> None:
         await self._publish_event("status", self._status.as_dict())
 
-    async def _emit_log_locked(self, level: str, message: str) -> None:
+    async def _emit_log_locked(self, level: str, message: str, *, source: str = "runtime", trace: str | None = None) -> None:
         level_map = {
             "debug": logging.DEBUG,
             "info": logging.INFO,
@@ -509,15 +522,16 @@ class CoreRuntimeService:
             "critical": logging.CRITICAL,
         }
         logger.log(level_map.get(level, logging.INFO), message)
-        await self._publish_event(
-            "log",
-            {
-                "id": str(uuid4()),
-                "ts": datetime.now(timezone.utc).isoformat(),
-                "level": level,
-                "message": message,
-            },
-        )
+        payload = {
+            "id": str(uuid4()),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "level": level,
+            "message": message,
+            "source": source,
+        }
+        if trace:
+            payload["trace"] = trace
+        await self._publish_event("log", payload)
 
     @staticmethod
     def _check_tcp(host: str, port: int) -> bool:

@@ -83,12 +83,30 @@ export function LogsPage() {
         {filtered.length === 0 ? <div className="text-textMuted">No logs for this filter.</div> : null}
         <div className="space-y-1">
           {filtered.map((line) => (
-            <div key={line.id} className="grid grid-cols-[88px_70px_1fr] gap-3 rounded px-2 py-1 hover:bg-panel">
-              <span className="text-textMuted">{formatShortLogTime(line.ts)}</span>
-              <span className={cn("uppercase", line.level === "error" ? "text-danger" : line.level === "warning" ? "text-warning" : "text-accent")}>
-                {line.level}
-              </span>
-              <span>{line.message}</span>
+            <div
+              key={line.id}
+              className={cn(
+                "rounded px-2 py-1 hover:bg-panel",
+                showDevelopmentLogs ? "space-y-1" : ""
+              )}
+            >
+              <div className={cn("grid gap-3", showDevelopmentLogs ? "grid-cols-[88px_70px_96px_1fr]" : "grid-cols-[88px_70px_1fr]")}>
+                <span className="text-textMuted">{formatShortLogTime(line.ts)}</span>
+                <span className={cn("uppercase", line.level === "error" ? "text-danger" : line.level === "warning" ? "text-warning" : "text-accent")}>
+                  {line.level}
+                </span>
+                {showDevelopmentLogs ? (
+                  <span className="inline-flex max-w-full items-center justify-center rounded-full border border-border/70 bg-panel px-2 py-0.5 text-[10px] uppercase tracking-wide text-textMuted">
+                    {line.source ?? "ui"}
+                  </span>
+                ) : null}
+                <span>{line.message}</span>
+              </div>
+              {showDevelopmentLogs && line.trace ? (
+                <pre className="overflow-x-auto rounded-md border border-border/70 bg-panel px-2 py-2 text-[11px] leading-4 text-textMuted whitespace-pre-wrap break-all">
+                  {line.trace}
+                </pre>
+              ) : null}
             </div>
           ))}
         </div>

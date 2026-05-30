@@ -4,6 +4,7 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import traceback
 from uuid import uuid4
 
 from app.core.config import settings
@@ -41,17 +42,18 @@ class ProfilePingService:
         self._delay_parallelism = 4
         self._speed_parallelism = 3
 
-    async def _emit_log(self, level: str, message: str) -> None:
+    async def _emit_log(self, level: str, message: str, *, source: str = "ping", trace: str | None = None) -> None:
         now = datetime.now(timezone.utc)
-        await self._publish_event(
-            "log",
-            {
-                "id": str(uuid4()),
-                "ts": now.isoformat(),
-                "level": level,
-                "message": message,
-            },
-        )
+        payload = {
+            "id": str(uuid4()),
+            "ts": now.isoformat(),
+            "level": level,
+            "message": message,
+            "source": source,
+        }
+        if trace:
+            payload["trace"] = trace
+        await self._publish_event("log", payload)
 
     async def ping_profile(self, profile_id: str, timeout_s: float = 8.0, probe_mode: ProbeMode = "quick") -> dict:
         profile = await fetch_profile_by_id(profile_id)
@@ -261,7 +263,7 @@ class ProfilePingService:
                                 "at": now_iso,
                             },
                         )
-                        await self._emit_log("warning", f"delay profile={profile_id} failed: {exc}")
+                        await self._emit_log("warning", f"delay profile={profile_id} failed: {exc}", trace=traceback.format_exc())
                     else:
                         await save_profile_speed_result(profile_id, 0.0, now_iso)
                         await self._publish_event(
@@ -274,7 +276,7 @@ class ProfilePingService:
                                 "at": now_iso,
                             },
                         )
-                        await self._emit_log("warning", f"speed profile={profile_id} failed: {exc}")
+                        await self._emit_log("warning", f"speed profile={profile_id} failed: {exc}", trace=traceback.format_exc())
                     ok = False
 
                 async with counter_lock:
