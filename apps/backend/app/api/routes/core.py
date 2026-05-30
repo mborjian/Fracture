@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.db.database import fetch_core_settings
 from app.services.profiles import list_profiles
 from app.services.runtime import CoreRuntimeService
 

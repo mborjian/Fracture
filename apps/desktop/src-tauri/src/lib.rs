@@ -4,13 +4,13 @@ use serde_json::Value;
 use std::fs;
 use std::io::{Read, Write};
 use std::net::TcpStream;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 use tauri::menu::{Menu, MenuItem};
 use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -96,19 +96,34 @@ fn first_existing(paths: &[PathBuf]) -> Option<PathBuf> {
 
 fn bundled_backend_executable(app: &AppHandle) -> Option<PathBuf> {
     let mut candidates = Vec::new();
-    if let Ok(path) = app.path().resolve("backend/fracture-backend.exe", BaseDirectory::Resource) {
+    if let Ok(path) = app
+        .path()
+        .resolve("backend/fracture-backend.exe", BaseDirectory::Resource)
+    {
         candidates.push(path);
     }
-    if let Ok(path) = app.path().resolve("fracture-backend.exe", BaseDirectory::Resource) {
+    if let Ok(path) = app
+        .path()
+        .resolve("fracture-backend.exe", BaseDirectory::Resource)
+    {
         candidates.push(path);
     }
-    if let Ok(path) = app.path().resolve("backend/dist/fracture-backend.exe", BaseDirectory::Resource) {
+    if let Ok(path) = app
+        .path()
+        .resolve("backend/dist/fracture-backend.exe", BaseDirectory::Resource)
+    {
         candidates.push(path);
     }
-    if let Ok(path) = app.path().resolve("backend/fracture-backend", BaseDirectory::Resource) {
+    if let Ok(path) = app
+        .path()
+        .resolve("backend/fracture-backend", BaseDirectory::Resource)
+    {
         candidates.push(path);
     }
-    if let Ok(path) = app.path().resolve("fracture-backend", BaseDirectory::Resource) {
+    if let Ok(path) = app
+        .path()
+        .resolve("fracture-backend", BaseDirectory::Resource)
+    {
         candidates.push(path);
     }
     first_existing(&candidates)
@@ -120,7 +135,10 @@ fn local_release_backend_executable() -> Option<PathBuf> {
         .join("..")
         .join("backend")
         .join("dist");
-    first_existing(&[base.join("fracture-backend.exe"), base.join("fracture-backend")])
+    first_existing(&[
+        base.join("fracture-backend.exe"),
+        base.join("fracture-backend"),
+    ])
 }
 
 fn dev_backend_dir() -> Option<PathBuf> {
@@ -169,8 +187,8 @@ fn spawn_production_backend_process(app: &AppHandle) -> Result<Child, String> {
 }
 
 fn spawn_dev_backend_process() -> Result<Child, String> {
-    let dev_dir =
-        dev_backend_dir().ok_or_else(|| "dev backend directory not found at apps/backend".to_string())?;
+    let dev_dir = dev_backend_dir()
+        .ok_or_else(|| "dev backend directory not found at apps/backend".to_string())?;
     let venv_python = dev_dir.join(".venv").join("Scripts").join("python.exe");
     let python = if venv_python.exists() {
         venv_python
@@ -206,8 +224,26 @@ fn spawn_backend_process(app: &AppHandle) -> Result<Child, String> {
     spawn_production_backend_process(app)
 }
 
+fn wait_for_backend_ready(timeout: std::time::Duration) -> Result<(), String> {
+    let started = std::time::Instant::now();
+    let mut last_error = "backend did not respond".to_string();
+
+    while started.elapsed() < timeout {
+        match call_local_api("GET", "/health", "") {
+            Ok(_) => return Ok(()),
+            Err(error) => {
+                last_error = error;
+                thread::sleep(std::time::Duration::from_millis(200));
+            }
+        }
+    }
+
+    Err(format!("backend did not become ready: {last_error}"))
+}
+
 fn call_local_api(method: &str, path: &str, body: &str) -> Result<String, String> {
-    let mut stream = TcpStream::connect((BACKEND_HOST, BACKEND_PORT)).map_err(|e| format!("connect failed: {e}"))?;
+    let mut stream = TcpStream::connect((BACKEND_HOST, BACKEND_PORT))
+        .map_err(|e| format!("connect failed: {e}"))?;
 
     let request = format!(
         "{method} {path} HTTP/1.1\r\nHost: {BACKEND_HOST}\r\nContent-Type: application/json\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
@@ -278,7 +314,8 @@ fn write_startup_registry(enabled: bool) -> Result<(), String> {
             .map_err(|e| format!("failed to open Windows startup registry key: {e}"))?;
 
         if enabled {
-            let exe = std::env::current_exe().map_err(|e| format!("failed to resolve current executable: {e}"))?;
+            let exe = std::env::current_exe()
+                .map_err(|e| format!("failed to resolve current executable: {e}"))?;
             let command = format!("\"{}\"", exe.display());
             run_key
                 .set_value(RUN_VALUE_NAME, &command)
@@ -300,7 +337,16 @@ fn sync_startup_from_settings() -> Result<(), String> {
     write_startup_registry(settings.ui.run_on_startup)
 }
 
-fn menu_items(app: &AppHandle) -> Result<(MenuItem<tauri::Wry>, MenuItem<tauri::Wry>, MenuItem<tauri::Wry>), tauri::Error> {
+fn menu_items(
+    app: &AppHandle,
+) -> Result<
+    (
+        MenuItem<tauri::Wry>,
+        MenuItem<tauri::Wry>,
+        MenuItem<tauri::Wry>,
+    ),
+    tauri::Error,
+> {
     let connect_item = MenuItem::with_id(app, "toggle_connection", "Connect", true, None::<&str>)?;
     let lan_item = MenuItem::with_id(app, "toggle_lan", "LAN Sharing: Off", true, None::<&str>)?;
     let quit_item = MenuItem::with_id(app, "quit", "Exit", true, None::<&str>)?;
@@ -317,7 +363,11 @@ fn refresh_tray_menu(app: &AppHandle) {
     let connected = status.state == "running" || status.state == "starting";
 
     let _ = connect_item.set_text(if connected { "Disconnect" } else { "Connect" });
-    let _ = lan_item.set_text(if lan_on { "LAN Sharing: On" } else { "LAN Sharing: Off" });
+    let _ = lan_item.set_text(if lan_on {
+        "LAN Sharing: On"
+    } else {
+        "LAN Sharing: Off"
+    });
 
     let Ok(menu) = Menu::with_items(app, &[&connect_item, &lan_item, &quit_item]) else {
         return;
@@ -349,7 +399,11 @@ fn tray_toggle_connection(app: &AppHandle) {
                 }
             }
             Err(error) => {
-                emit_ui_log("error", &format!("Tray connection action failed: {error}"), "tray");
+                emit_ui_log(
+                    "error",
+                    &format!("Tray connection action failed: {error}"),
+                    "tray",
+                );
             }
         }
         refresh_tray_menu(&app_handle);
@@ -369,7 +423,11 @@ fn tray_toggle_lan(app: &AppHandle) {
             .get("proxyScope")
             .and_then(|value| value.as_str())
             .unwrap_or("local");
-        let next = if current.eq_ignore_ascii_case("lan") { "local" } else { "lan" };
+        let next = if current.eq_ignore_ascii_case("lan") {
+            "local"
+        } else {
+            "lan"
+        };
         if let Some(object) = payload.as_object_mut() {
             object.insert("proxyScope".to_string(), Value::String(next.to_string()));
         } else {
@@ -398,7 +456,13 @@ fn kill_backend_port_owners() {
          foreach ($owner in $owners) {{ if ($owner -and $owner -ne $current) {{ Stop-Process -Id $owner -Force -ErrorAction SilentlyContinue }} }}"
     );
     let mut cmd = Command::new("powershell");
-    cmd.args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", &script]);
+    cmd.args([
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-Command",
+        &script,
+    ]);
     hide_on_windows(&mut cmd);
     let _ = cmd.stdout(Stdio::null()).stderr(Stdio::null()).status();
 }
@@ -437,19 +501,44 @@ fn begin_backend_shutdown(app: AppHandle) {
 
 #[tauri::command]
 fn start_backend(app: AppHandle) -> Result<(), String> {
-    let mut guard = BACKEND_CHILD
-        .lock()
-        .map_err(|_| "backend lock poisoned".to_string())?;
-    if guard.is_some() {
-        return Ok(());
+    {
+        let mut guard = BACKEND_CHILD
+            .lock()
+            .map_err(|_| "backend lock poisoned".to_string())?;
+
+        if let Some(child) = guard.as_mut() {
+            match child.try_wait() {
+                Ok(Some(_)) => {
+                    *guard = None;
+                }
+                Ok(None) => {
+                    if call_local_api("GET", "/health", "").is_ok() {
+                        return Ok(());
+                    }
+                    if let Some(child) = guard.take() {
+                        terminate_backend_child(child);
+                    }
+                }
+                Err(error) => {
+                    *guard = None;
+                    return Err(format!("failed to inspect backend process: {error}"));
+                }
+            }
+        }
+
+        let _ = call_local_api("POST", "/api/core/stop", "{}");
+        thread::sleep(std::time::Duration::from_millis(300));
+        kill_backend_port_owners();
+
+        let child = spawn_backend_process(&app)?;
+        *guard = Some(child);
     }
 
-    let _ = call_local_api("POST", "/api/core/stop", "{}");
-    thread::sleep(std::time::Duration::from_millis(300));
-    kill_backend_port_owners();
+    if let Err(error) = wait_for_backend_ready(std::time::Duration::from_secs(10)) {
+        let _ = stop_backend();
+        return Err(error);
+    }
 
-    let child = spawn_backend_process(&app)?;
-    *guard = Some(child);
     Ok(())
 }
 
@@ -581,12 +670,10 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|handle, event| {
-        match event {
-            tauri::RunEvent::Ready => {
-                refresh_tray_menu(handle);
-            }
-            _ => {}
+    app.run(|handle, event| match event {
+        tauri::RunEvent::Ready => {
+            refresh_tray_menu(handle);
         }
+        _ => {}
     });
 }
