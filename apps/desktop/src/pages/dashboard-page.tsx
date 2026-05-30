@@ -7,6 +7,7 @@ import {
   Power,
   Square,
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +63,18 @@ function CopyButton({ value, successMessage }: { value: string; successMessage: 
       <Copy className="h-3.5 w-3.5" />
     </button>
   );
+}
+
+async function ensureBackendAvailable() {
+  try {
+    await api.health();
+    return;
+  } catch {
+    // In Tauri, the shell can restart the local backend if it was stopped.
+  }
+
+  await invoke("start_backend");
+  await api.health();
 }
 
 export function DashboardPage() {
@@ -158,6 +171,7 @@ export function DashboardPage() {
             });
           });
         setPendingAction("connecting");
+        await ensureBackendAvailable();
         const next = await api.start(status?.activeProfileId ?? null);
         if (next.state !== "running" || !next.ready) {
           throw new Error(next.lastError || "Connection failed to start");

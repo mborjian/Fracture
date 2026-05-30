@@ -12,17 +12,27 @@ import type {
 const BASE_URL = "http://127.0.0.1:8765";
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {})
-    }
-  });
+  const url = `${BASE_URL}${path}`;
+  const method = init?.method ?? "GET";
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {})
+      }
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const wrapped = new Error(`Network request failed: ${method} ${url}. Backend is unreachable. ${message}`);
+    (wrapped as Error & { cause?: unknown }).cause = error;
+    throw wrapped;
+  }
 
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || `API ${response.status} ${response.statusText}`);
+    throw new Error(text || `API ${method} ${url} failed: ${response.status} ${response.statusText}`);
   }
 
   const contentType = response.headers.get("content-type") || "";
