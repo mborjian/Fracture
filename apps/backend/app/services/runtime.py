@@ -32,7 +32,7 @@ from app.services.singbox import (
     stop_instance,
 )
 from app.services.transport import manager as transport_manager
-from app.services.transport.traffic import fetch_egress_via_socks5
+from app.services.transport.traffic import _traffic, fetch_egress_via_socks5
 
 CoreRuntime = Literal["sing-box"]
 ConnectionState = Literal["stopped", "starting", "running", "error"]

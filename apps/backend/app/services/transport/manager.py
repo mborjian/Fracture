@@ -5,6 +5,8 @@ import socket
 import socks
 import threading
 import time
+import contextlib
+import concurrent.futures
 from typing import Optional
 
 from .packet_templates import ClientHelloMaker
@@ -12,6 +14,7 @@ from .socks5 import Socks5Server
 from .tcp_injector import TcpInjector, FakeInjectiveConnection
 
 _injector_thread: Optional[threading.Thread] = None
+_socks_thread: Optional[threading.Thread] = None
 _connections: dict = {}
 _running = False
 _socks_server: Optional[Socks5Server] = None
@@ -21,7 +24,7 @@ _active_socks_port: Optional[int] = None
 
 def start_injector(interface_ipv4: str, connect_ip: str, connect_port: int, fake_sni: bytes, socks_port: int):
     """Launch the WinDivert injector in a background thread and start SOCKS5 proxy."""
-    global _injector_thread, _connections, _running, _socks_server, _socks_loop, _active_socks_port
+    global _injector_thread, _socks_thread, _connections, _running, _socks_server, _socks_loop, _active_socks_port
 
     if _running:
         stop_injector()
@@ -37,7 +40,8 @@ def start_injector(interface_ipv4: str, connect_ip: str, connect_port: int, fake
 
     # Start WinDivert capture thread
     def _run():
-        injector.run()
+        with contextlib.suppress(Exception):
+            injector.run()
 
     _injector_thread = threading.Thread(target=_run, daemon=True)
     _injector_thread.start()
@@ -47,29 +51,52 @@ def start_injector(interface_ipv4: str, connect_ip: str, connect_port: int, fake
     _socks_server = Socks5Server("127.0.0.1", socks_port, interface_ipv4, connect_ip, connect_port, fake_sni)
 
     def _run_proxy():
-        asyncio.set_event_loop(_socks_loop)
-        _socks_loop.run_until_complete(_socks_server.start())
-        _socks_loop.run_forever()
+        loop = _socks_loop
+        server = _socks_server
+        if loop is None or server is None:
+            return
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(server.start())
+            loop.run_forever()
+        finally:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
 
-    threading.Thread(target=_run_proxy, daemon=True).start()
+    _socks_thread = threading.Thread(target=_run_proxy, daemon=True)
+    _socks_thread.start()
     return True
 
 
 def stop_injector():
     """Stop WinDivert injector and SOCKS5 proxy."""
-    global _running, _injector_thread, _socks_server, _socks_loop, _active_socks_port
+    global _running, _injector_thread, _socks_thread, _socks_server, _socks_loop, _active_socks_port
     _running = False
 
-    if _socks_server and _socks_loop:
+    if _socks_server and _socks_loop and not _socks_loop.is_closed():
         async def _stop():
             await _socks_server.stop()
 
-        asyncio.run_coroutine_threadsafe(_stop(), _socks_loop)
-        _socks_loop.call_soon_threadsafe(_socks_loop.stop)
-        _socks_server = None
-        _socks_loop = None
+        try:
+            future = asyncio.run_coroutine_threadsafe(_stop(), _socks_loop)
+            future.result(timeout=2)
+        except (RuntimeError, concurrent.futures.TimeoutError):
+            pass
+        finally:
+            with contextlib.suppress(RuntimeError):
+                _socks_loop.call_soon_threadsafe(_socks_loop.stop)
+
+    if _socks_thread and _socks_thread.is_alive():
+        _socks_thread.join(timeout=2)
 
     _injector_thread = None
+    _socks_thread = None
+    _socks_server = None
+    _socks_loop = None
     _connections.clear()
     _active_socks_port = None
 
