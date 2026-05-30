@@ -58,7 +58,10 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
       role="switch"
       aria-checked={checked}
       disabled={disabled}
-      className={cn(switchVariants({ size, checked, className }))}
+      className={cn(
+        switchVariants({ size, checked, className }),
+        "shadow-[0_0_0_1px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.2)]"
+      )}
       onClick={(event) => {
         props.onClick?.(event);
         if (!event.defaultPrevented && !disabled) {
@@ -67,7 +70,8 @@ export const Switch = React.forwardRef<HTMLButtonElement, SwitchProps>(
       }}
     >
       <span
-        className={cn(thumbVariants({ size, checked }), checked ? "translate-x-[calc(100%-2px)]" : "translate-x-0.5")}
+        className={cn(thumbVariants({ size, checked }), checked ? "translate-x-[100%]" : "translate-x-0.5",
+            "shadow-[0_0_0_1px_rgba(0,0,0,0.05),0_1px_3px_rgba(0,0,0,0.15)]")}
       />
     </button>
   )

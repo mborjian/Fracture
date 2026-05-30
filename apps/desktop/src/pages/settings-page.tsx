@@ -305,14 +305,14 @@ export function SettingsPage() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4">
-        <Card className="flex h-[280px] flex-col">
+        <Card className="flex h-[280px] flex-col rounded-xl">
           <h3 className="mb-3 text-sm font-semibold">Cloudflare Listener JSON</h3>
           <div className="mb-3 flex items-center gap-2">
             <div ref={listenerMenuRef} className="relative min-w-0 flex-1">
               <button
                 type="button"
                 onClick={() => setListenerOpen((prev) => !prev)}
-                className="flex h-9 w-full items-center justify-between rounded-md border border-border bg-panelAlt px-3 text-left"
+                className="flex h-9 w-full items-center justify-between rounded-xl border border-border bg-panelAlt px-3 text-left"
               >
                 <div className="min-w-0">
                   <div className="truncate text-sm">{selectedMeta.title} <span className="text-[12px] text-textMuted">({selectedMeta.subtitle})</span></div>
@@ -320,7 +320,7 @@ export function SettingsPage() {
                 <ChevronDown className={cn("ml-2 h-4 w-4 shrink-0 transition-transform", listenerOpen ? "rotate-180" : "")} />
               </button>
               {listenerOpen ? (
-                <div className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-auto rounded-md border border-border bg-panel shadow-soft">
+                <div className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-auto rounded-xl border border-border bg-panel shadow-soft">
                   {cloudflareDraft.listeners.map((listener) => {
                     const meta = formatListenerLabel(listener);
                     const active = listener.id === cloudflareDraft.selectedId;
@@ -351,7 +351,7 @@ export function SettingsPage() {
 
           <div className="relative min-h-0 flex-1">
             <textarea
-              className="h-full w-full resize-none rounded-md border border-border bg-panelAlt px-3 py-2 pr-24 font-mono text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              className="h-full w-full resize-none rounded-xl border border-border bg-panelAlt px-3 py-2 pr-24 font-mono text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-accent"
               value={listenerText}
               onChange={(event) => setListenerText(event.target.value)}
               spellCheck={false}
@@ -383,7 +383,7 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        <Card className="flex h-[280px] flex-col">
+        <Card className="flex h-[280px] flex-col rounded-xl">
           <h3 className="mb-4 text-sm font-semibold">Proxy Port</h3>
           <ToggleGroup type="single" value={coreDraft.proxyScope} className="w-[180px] mx-auto mb-5"
             onValueChange={(value) => {
@@ -421,7 +421,7 @@ export function SettingsPage() {
       </div>
 
       <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4">
-        <Card className="h-[260px]">
+        <Card className="h-[330px] rounded-xl">
           <h3 className="text-sm font-semibold mb-3">Appearance</h3>
 
           <ToggleGroup type="single" className="mx-auto w-[270px] mb-3" value={uiDraft.theme}
@@ -489,7 +489,7 @@ export function SettingsPage() {
           </label>
         </Card>
 
-        <Card className="flex h-[260px] flex-col">
+        <Card className="flex h-[330px] flex-col rounded-xl">
           <h3 className="mb-4 text-sm font-semibold">Transport Mode</h3>
           <ToggleGroup
             type="single"

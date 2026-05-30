@@ -112,7 +112,7 @@ export function AboutPage() {
                 event.preventDefault();
                 void openExternalUrl("https://github.com/mborjian/Fracture/stargazers");
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-[var(--tone-warning-border)] bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-warning-text)] transition-colors hover:bg-[var(--tone-warning-bg-hover)]"
+              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-warning-border)] bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-warning-text)] transition-colors hover:bg-[var(--tone-warning-bg-hover)]"
             >
               <Star className="h-3.5 w-3.5" />
               <span>Star</span>
@@ -125,7 +125,7 @@ export function AboutPage() {
                 event.preventDefault();
                 void openExternalUrl("https://github.com/mborjian/Fracture/subscription");
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-[var(--tone-success-border)] bg-[var(--tone-success-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-success-text)] transition-colors hover:bg-[var(--tone-success-bg-hover)]"
+              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-success-border)] bg-[var(--tone-success-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-success-text)] transition-colors hover:bg-[var(--tone-success-bg-hover)]"
             >
               <Heart className="h-3.5 w-3.5" />
               <span>Watch</span>
@@ -138,7 +138,7 @@ export function AboutPage() {
                 event.preventDefault();
                 void openExternalUrl("https://github.com/mborjian/Fracture/fork");
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-neutral-text)] transition-colors hover:bg-[var(--tone-neutral-bg-hover)]"
+              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-neutral-text)] transition-colors hover:bg-[var(--tone-neutral-bg-hover)]"
             >
               <GitFork className="h-3.5 w-3.5" />
               <span>Fork</span>
@@ -151,7 +151,7 @@ export function AboutPage() {
                 event.preventDefault();
                 void openExternalUrl("https://github.com/mborjian/Fracture/issues/new/choose");
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-[var(--tone-danger-border)] bg-[var(--tone-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-danger-text)] transition-colors hover:bg-[var(--tone-danger-bg-hover)]"
+              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-danger-border)] bg-[var(--tone-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-danger-text)] transition-colors hover:bg-[var(--tone-danger-bg-hover)]"
             >
               <Bug className="h-3.5 w-3.5" />
               <span>Report Issue</span>
@@ -174,7 +174,7 @@ export function AboutPage() {
                 event.preventDefault();
                 void openExternalUrl("https://github.com/g3ntrix/Cloak");
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-border bg-panelAlt px-2 py-1 transition-colors hover:bg-panel hover:text-text"
+              className="inline-flex items-center gap-1 rounded-xl border border-border bg-panelAlt px-2 py-1 transition-colors hover:bg-panel hover:text-text"
             >
               <SiGithub size={12} />
               <span>/g3ntrix/Cloak</span>
@@ -187,7 +187,7 @@ export function AboutPage() {
                 event.preventDefault();
                 void openExternalUrl("https://github.com/patterniha/SNI-Spoofing");
               }}
-              className="inline-flex items-center gap-1 rounded-lg border border-border bg-panelAlt px-2 py-1 transition-colors hover:bg-panel hover:text-text"
+              className="inline-flex items-center gap-1 rounded-xl border border-border bg-panelAlt px-2 py-1 transition-colors hover:bg-panel hover:text-text"
             >
               <SiGithub size={12} />
               <span>/patterniha/SNI-Spoofing</span>
@@ -266,7 +266,7 @@ export function AboutPage() {
                 <X className="h-4 w-4" />
               </button>
             </div>
-            <img src={activeWallet.qrImage} alt={`${activeWallet.walletId} QR`} className="w-full rounded-lg border border-border" />
+            <img src={activeWallet.qrImage} alt={`${activeWallet.walletId} QR`} className="w-full rounded-xl border border-border" />
           </div>
         </div>
       ) : null}

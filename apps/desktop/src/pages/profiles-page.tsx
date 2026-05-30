@@ -467,7 +467,7 @@ export function ProfilesPage() {
           onMouseDown={closeImportPanel}
         >
           <Card
-            className="relative w-full max-w-4xl overflow-hidden border border-border bg-panel shadow-2xl"
+            className="relative w-full max-w-4xl overflow-hidden rounded-xl border border-border bg-panel shadow-2xl"
             onMouseDown={(event) => event.stopPropagation()}
           >
             <div className="flex items-center justify-between border-b border-border px-4 py-3">
@@ -481,7 +481,7 @@ export function ProfilesPage() {
             <div className="p-4">
               <div
                 className={cn(
-                  "relative min-h-[20rem] overflow-hidden rounded-md border border-dashed border-border bg-panelAlt transition-colors",
+                  "relative min-h-[20rem] overflow-hidden rounded-xl border border-dashed border-border bg-panelAlt transition-colors",
                   importDragActive ? "border-accent/70 bg-importDrag" : ""
                 )}
                 onDragEnter={(event) => {
@@ -506,7 +506,7 @@ export function ProfilesPage() {
                 <textarea
                   ref={importTextAreaRef}
                   className={cn(
-                    "absolute inset-0 h-full w-full resize-none bg-transparent px-5 py-5 text-sm text-text outline-none",
+                    "absolute rounded-xl inset-0 h-full w-full resize-none bg-transparent px-5 py-5 text-sm text-text outline-none",
                     importDragActive ? "pointer-events-none" : ""
                   )}
                   aria-label="Import profiles text"
@@ -589,7 +589,7 @@ export function ProfilesPage() {
                   void handleDropAtIndex(dropIndex ?? index);
                 }}
                 className={cn(
-                  "w-full cursor-move p-3 transition-all",
+                  "w-full rounded-xl cursor-move p-3 transition-all",
                   active
                     ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
                     : "",
@@ -648,7 +648,7 @@ export function ProfilesPage() {
 
       {contextMenu ? createPortal(
         <div
-          className="fixed z-50 min-w-[180px] rounded-md border border-border bg-panel p-1 shadow-soft"
+          className="fixed z-50 min-w-[180px] rounded-xl border border-border bg-panel p-1 shadow-soft"
           style={{
             left: clampToViewport(contextMenu.x, CONTEXT_MENU_WIDTH, window.innerWidth),
             top: clampToViewport(contextMenu.y, CONTEXT_MENU_HEIGHT, window.innerHeight)
@@ -681,7 +681,7 @@ export function ProfilesPage() {
 
       {renaming ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-overlaySoft p-4">
-          <Card className="w-full max-w-[420px] space-y-3">
+          <Card className="w-full max-w-[420px] rounded-xl space-y-3">
             <div className="text-sm font-semibold">Rename Profile</div>
             <Input value={renameValue} onChange={(event) => setRenameValue(event.target.value)} placeholder="Profile name" />
             <div className="flex justify-end gap-2">

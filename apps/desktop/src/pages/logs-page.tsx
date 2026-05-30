@@ -79,7 +79,7 @@ export function LogsPage() {
         </Button>
       </div>
 
-      <div className="h-[calc(100vh-240px)] min-h-[280px] w-full overflow-y-auto rounded-md border border-border bg-panelAlt p-2 font-mono text-xs">
+      <div className="h-[calc(100vh-240px)] min-h-[280px] w-full overflow-y-auto rounded-xl border border-border bg-panelAlt p-2 font-mono text-xs">
         {filtered.length === 0 ? <div className="text-textMuted">No logs for this filter.</div> : null}
         <div className="space-y-1">
           {filtered.map((line) => (
@@ -103,7 +103,7 @@ export function LogsPage() {
                 <span>{line.message}</span>
               </div>
               {showDevelopmentLogs && line.trace ? (
-                <pre className="overflow-x-auto rounded-md border border-border/70 bg-panel px-2 py-2 text-[11px] leading-4 text-textMuted whitespace-pre-wrap break-all">
+                <pre className="overflow-x-auto rounded-xl border border-border/70 bg-panel px-2 py-2 text-[11px] leading-4 text-textMuted whitespace-pre-wrap break-all">
                   {line.trace}
                 </pre>
               ) : null}

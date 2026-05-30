@@ -107,9 +107,9 @@ export function App() {
 
   return (
     <div className="flex h-full flex-col gap-3 p-3">
-      <header className="grid h-14 grid-cols-[1fr_auto_1fr] items-center rounded-lg border border-border bg-panel px-4">
+      <header className="grid h-14 grid-cols-[1fr_auto_1fr] items-center  rounded-xl border border-border bg-panel px-4">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="Fracture" className="h-7 w-7 rounded-md" />
+          <img src="/logo.png" alt="Fracture" className="h-7 w-7  rounded-xl" />
           <span className="text-sm font-semibold">Fracture</span>
         </div>
 
@@ -151,7 +151,7 @@ export function App() {
         </div>
       </header>
 
-      <motion.main key={page} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="min-h-0 flex-1 overflow-auto rounded-lg border border-border bg-panel p-4">
+      <motion.main key={page} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-panel p-4">
         <div className="min-h-full">
           <ActivePage />
         </div>
