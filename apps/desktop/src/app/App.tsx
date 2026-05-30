@@ -1,4 +1,5 @@
 import { useEffect, type ComponentType } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { CircleHelp, Cog, FileText, LayoutDashboard, ListTree } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -68,13 +69,14 @@ export function App() {
   const setPage = useAppStore((s) => s.setPage);
   const connectionState = useAppStore((s) => s.connectionState);
   const setStatus = useAppStore((s) => s.setStatus);
+  const queryClient = useQueryClient();
   const { isError } = useBackendHealth();
   const statusMeta = stateBadgeMeta(connectionState);
 
   useEffect(() => {
-    const disconnect = connectRealtime();
+    const disconnect = connectRealtime(queryClient);
     return disconnect;
-  }, []);
+  }, [queryClient]);
 
   useEffect(() => {
     void api

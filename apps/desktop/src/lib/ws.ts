@@ -1,10 +1,11 @@
 import { toast } from "sonner";
+import type { QueryClient } from "@tanstack/react-query";
 import type { CoreStatus, LogEvent, WsEvent } from "@/types";
 import { useAppStore } from "@/store/useAppStore";
 
 const WS_URL = "ws://127.0.0.1:8765/ws/events";
 
-export function connectRealtime() {
+export function connectRealtime(queryClient: QueryClient) {
   let reconnectTimer: number | null = null;
   let ws: WebSocket | null = null;
 
@@ -22,7 +23,17 @@ export function connectRealtime() {
         useAppStore.getState().addLog(data.payload as LogEvent);
       }
       if (data.type === "ping") {
-        const ping = data.payload as { profileId: string; ok: boolean; latencyMs: number | null; error?: string };
+        const ping = data.payload as { profileId: string; ok: boolean; latencyMs: number | null; error?: string; at?: string };
+        queryClient.setQueryData(["profiles"], (profiles: unknown) => {
+          if (!Array.isArray(profiles)) return profiles;
+          return profiles.map((profile) => {
+            const item = profile as Record<string, unknown>;
+            return item && item.id === ping.profileId
+              ? { ...item, lastPingMs: ping.latencyMs, lastPingAt: ping.at ?? null }
+              : profile;
+          });
+        });
+        window.dispatchEvent(new CustomEvent("fracture-profile-metric", { detail: { type: "ping", ...ping } }));
         useAppStore.getState().addLog({
           id: `ping-${ping.profileId}-${Date.now()}`,
           ts: new Date().toISOString(),
@@ -42,7 +53,17 @@ export function connectRealtime() {
         });
       }
       if (data.type === "speed") {
-        const speed = data.payload as { profileId: string; ok: boolean; speedMBps: number | null; error?: string };
+        const speed = data.payload as { profileId: string; ok: boolean; speedMBps: number | null; error?: string; at?: string };
+        queryClient.setQueryData(["profiles"], (profiles: unknown) => {
+          if (!Array.isArray(profiles)) return profiles;
+          return profiles.map((profile) => {
+            const item = profile as Record<string, unknown>;
+            return item && item.id === speed.profileId
+              ? { ...item, lastSpeedMbps: speed.speedMBps, lastSpeedAt: speed.at ?? null }
+              : profile;
+          });
+        });
+        window.dispatchEvent(new CustomEvent("fracture-profile-metric", { detail: { type: "speed", ...speed } }));
         useAppStore.getState().addLog({
           id: `speed-${speed.profileId}-${Date.now()}`,
           ts: new Date().toISOString(),

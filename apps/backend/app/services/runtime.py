@@ -7,6 +7,7 @@ import logging
 import socket
 import time
 import urllib.error
+import urllib.request
 import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
@@ -33,8 +34,9 @@ from app.services.singbox import (
 )
 from app.services.transport import manager as transport_manager
 from app.services.transport.traffic import _traffic, fetch_egress_via_socks5
+from app.services.system_proxy import enable_system_proxy, get_system_proxy_state, restore_system_proxy_state
 
-CoreRuntime = Literal["sing-box"]
+CoreRuntime = Literal["sing-box", "tcp-inject"]
 ConnectionState = Literal["stopped", "starting", "running", "error"]
 
 logger = logging.getLogger(__name__)
@@ -101,6 +103,8 @@ class CoreRuntimeService:
         self._instance: RunningInstance | None = None
         self._sampler_task: asyncio.Task[None] | None = None
         self._last_sample_monotonic: float | None = None
+        self._saved_system_proxy_state: dict | None = None
+        self._clash_traffic_stream: urllib.request.addinfourl | None = None
 
     async def get_status(self) -> dict:
         async with self._lock:
@@ -143,6 +147,7 @@ class CoreRuntimeService:
 
             try:
                 await self._spawn_runtime_locked()
+                await self._apply_system_proxy_locked()
                 self._status.state = "running"
                 self._status.started_at = datetime.now(timezone.utc)
                 self._status.ready = True
@@ -152,6 +157,7 @@ class CoreRuntimeService:
                 await self._emit_log_locked("info", f"runtime={runtime} started")
             except Exception as exc:  # noqa: BLE001
                 await self._cleanup_instance_locked()
+                await self._restore_system_proxy_locked()
                 self._status.state = "error"
                 self._status.started_at = None
                 self._status.ready = False
@@ -285,10 +291,6 @@ class CoreRuntimeService:
         if record is None:
             raise RuntimeError("Selected profile does not exist")
 
-        binary_path = settings.singbox_dir / self._binary_name("sing-box")
-        if not binary_path.exists():
-            raise RuntimeError(f"sing-box binary not found at {binary_path}")
-
         profile = record_to_profile(record)
         cloudflare_listener = await fetch_selected_cloudflare_listener()
         profile = self._apply_cloudflare_listener(profile, cloudflare_listener)
@@ -301,6 +303,10 @@ class CoreRuntimeService:
             await self._emit_log_locked("info", f"runtime mode=tcp-inject profile={profile_id}")
             await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
             return
+
+        binary_path = settings.singbox_dir / self._binary_name("sing-box")
+        if not binary_path.exists():
+            raise RuntimeError(f"sing-box binary not found at {binary_path}")
 
         mode = "tun" if bool(routing.get("tunMode", False)) else "proxy"
         http_port = int(core_settings.get("proxyPort", 2080))
@@ -323,6 +329,7 @@ class CoreRuntimeService:
             routing,
             listen_host,
             "runtime.json",
+            True,
         )
         self._instance = instance
         await self._ensure_readiness_locked()
@@ -343,10 +350,23 @@ class CoreRuntimeService:
         interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
         # Start the background injector
         socks_port = int(core_settings.get("socksPort", 2081))
-        transport_manager.start_injector(interface_ipv4, connect_ip, connect_port, fake_sni.encode(), socks_port)
+        http_port = int(core_settings.get("proxyPort", 2080))
+        listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
+        self._status.listen_host = listen_host
+        self._status.http_port = http_port
+        self._status.socks_port = socks_port
+        transport_manager.start_injector(
+            interface_ipv4,
+            connect_ip,
+            connect_port,
+            fake_sni.encode(),
+            socks_port,
+            http_port,
+            listen_host,
+        )
         await self._emit_log_locked(
             "debug",
-            f"tcp-inject interface={interface_ipv4} target={connect_ip}:{connect_port} socks={socks_port}",
+            f"tcp-inject interface={interface_ipv4} target={connect_ip}:{connect_port} listen={listen_host}:{http_port}/{socks_port}",
         )
 
         # Now we need to "claim" that the runtime is ready – but the actual per‑connection
@@ -384,6 +404,46 @@ class CoreRuntimeService:
             self._sampler_task = None
 
         await self._cleanup_instance_locked()
+        await self._restore_system_proxy_locked()
+
+    async def _apply_system_proxy_locked(self) -> None:
+        core_settings = await fetch_core_settings()
+        routing = await fetch_routing_config()
+        bypass = self._system_proxy_bypass(routing)
+        try:
+            if self._saved_system_proxy_state is None:
+                self._saved_system_proxy_state = await asyncio.to_thread(get_system_proxy_state)
+            await asyncio.to_thread(enable_system_proxy, "127.0.0.1", int(core_settings.get("proxyPort", 2080)), bypass)
+        except Exception as exc:  # noqa: BLE001
+            saved_state = self._saved_system_proxy_state
+            self._saved_system_proxy_state = None
+            if saved_state is not None:
+                with contextlib.suppress(Exception):
+                    await asyncio.to_thread(restore_system_proxy_state, saved_state)
+            await self._emit_log_locked(
+                "warning",
+                f"system proxy was not applied: {exc}",
+                trace=traceback.format_exc(),
+            )
+        else:
+            await self._emit_log_locked("info", "Windows system proxy applied")
+
+    async def _restore_system_proxy_locked(self) -> None:
+        saved_state = self._saved_system_proxy_state
+        self._saved_system_proxy_state = None
+        self._close_clash_traffic_stream()
+        if saved_state is None:
+            return
+        try:
+            await asyncio.to_thread(restore_system_proxy_state, saved_state)
+        except Exception as exc:  # noqa: BLE001
+            await self._emit_log_locked(
+                "warning",
+                f"system proxy restore failed: {exc}",
+                trace=traceback.format_exc(),
+            )
+        else:
+            await self._emit_log_locked("info", "Windows system proxy restored")
 
     async def _cleanup_instance_locked(self) -> None:
         instance = self._instance
@@ -391,6 +451,13 @@ class CoreRuntimeService:
         if instance is None:
             return
         await asyncio.to_thread(stop_instance, instance)
+
+    def _close_clash_traffic_stream(self) -> None:
+        stream = self._clash_traffic_stream
+        self._clash_traffic_stream = None
+        if stream is not None:
+            with contextlib.suppress(Exception):
+                stream.close()
 
     def _start_sampler_locked(self) -> None:
         if self._sampler_task is not None:
@@ -410,18 +477,12 @@ class CoreRuntimeService:
                     elapsed = now - self._last_sample_monotonic if self._last_sample_monotonic is not None else 1.0
                     self._last_sample_monotonic = now
 
-                    # Get traffic from the SOCKS5 relay
-                    down = _traffic.download_bytes
-                    up = _traffic.upload_bytes
+                    down, up = _traffic.consume()
 
                     self._status.download_bps = down / elapsed
                     self._status.upload_bps = up / elapsed
                     self._status.session_download_bytes += down
                     self._status.session_upload_bytes += up
-
-                    # Reset traffic counters for next second
-                    _traffic.download_bytes = 0
-                    _traffic.upload_bytes = 0
 
                     await self._refresh_egress_info_locked()
                     await self._emit_status_locked()
@@ -446,9 +507,16 @@ class CoreRuntimeService:
                 elapsed = 0.0 if self._last_sample_monotonic is None else max(0.0, now - self._last_sample_monotonic)
                 self._last_sample_monotonic = now
                 await self._refresh_runtime_metadata_locked()
+                down, up = await asyncio.to_thread(self._read_singbox_traffic_delta)
                 await self._refresh_egress_info_locked()
-                self._status.session_download_bytes += self._status.download_bps * elapsed
-                self._status.session_upload_bytes += self._status.upload_bps * elapsed
+                if down is not None and up is not None and elapsed > 0:
+                    self._status.download_bps = down / elapsed
+                    self._status.upload_bps = up / elapsed
+                    self._status.session_download_bytes += down
+                    self._status.session_upload_bytes += up
+                else:
+                    self._status.session_download_bytes += self._status.download_bps * elapsed
+                    self._status.session_upload_bytes += self._status.upload_bps * elapsed
                 await self._emit_status_locked()
 
     async def _refresh_egress_info_locked(self) -> None:
@@ -576,6 +644,40 @@ class CoreRuntimeService:
         payload["latencyMs"] = max(1, int(elapsed * 1000))
         payload["downloadBps"] = 0.0
         return payload
+
+    def _read_singbox_traffic_delta(self) -> tuple[int | None, int | None]:
+        instance = self._instance
+        if instance is None or instance.clash_api_port is None:
+            return None, None
+
+        try:
+            if self._clash_traffic_stream is None:
+                request = urllib.request.Request(
+                    f"http://127.0.0.1:{instance.clash_api_port}/traffic",
+                    headers={"User-Agent": "Fracture"},
+                )
+                self._clash_traffic_stream = urllib.request.urlopen(request, timeout=2)
+
+            line = self._clash_traffic_stream.readline()
+            if not line:
+                self._close_clash_traffic_stream()
+                return None, None
+            payload = json.loads(line.decode("utf-8", errors="replace"))
+            down = payload.get("down")
+            up = payload.get("up")
+            if isinstance(down, (int, float)) and isinstance(up, (int, float)):
+                return int(down), int(up)
+        except Exception:
+            self._close_clash_traffic_stream()
+        return None, None
+
+    @staticmethod
+    def _system_proxy_bypass(routing: dict[str, object]) -> str:
+        raw = str(routing.get("bypassDomains", "")).strip()
+        domains = [item.strip() for item in raw.replace("\n", ",").split(",") if item.strip()]
+        if "<local>" not in {item.lower() for item in domains}:
+            domains.append("<local>")
+        return ";".join(domains)
 
     @staticmethod
     def _resolve_local_device_ip() -> str | None:

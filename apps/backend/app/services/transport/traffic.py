@@ -1,23 +1,41 @@
-import asyncio
+import threading
+import time
 from typing import Optional, Tuple
 
 
 class TrafficMonitor:
     def __init__(self):
+        self._lock = threading.Lock()
         self.download_bytes = 0
         self.upload_bytes = 0
-        self.last_reset = asyncio.get_event_loop().time()
+        self.last_reset = time.monotonic()
 
     def add_download(self, n: int):
-        self.download_bytes += n
+        with self._lock:
+            self.download_bytes += n
 
     def add_upload(self, n: int):
-        self.upload_bytes += n
+        with self._lock:
+            self.upload_bytes += n
 
     def reset(self):
-        self.download_bytes = 0
-        self.upload_bytes = 0
-        self.last_reset = asyncio.get_event_loop().time()
+        with self._lock:
+            self.download_bytes = 0
+            self.upload_bytes = 0
+            self.last_reset = time.monotonic()
+
+    def consume(self) -> tuple[int, int]:
+        with self._lock:
+            down = self.download_bytes
+            up = self.upload_bytes
+            self.download_bytes = 0
+            self.upload_bytes = 0
+            self.last_reset = time.monotonic()
+            return down, up
+
+    def snapshot(self) -> tuple[int, int]:
+        with self._lock:
+            return self.download_bytes, self.upload_bytes
 
 
 _traffic = TrafficMonitor()

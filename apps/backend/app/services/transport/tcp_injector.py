@@ -1,3 +1,4 @@
+import contextlib
 import sys
 import threading
 import time
@@ -22,6 +23,12 @@ class TcpInjector:
     def __init__(self, w_filter: str, connections: dict):
         self.w = WinDivert(w_filter)
         self.connections = connections
+        self.running = True
+
+    def stop(self):
+        self.running = False
+        with contextlib.suppress(Exception):
+            self.w.close()
 
     def _fake_send_thread(self, packet: Packet, conn: FakeInjectiveConnection):
         time.sleep(0.001)
@@ -39,7 +46,8 @@ class TcpInjector:
     def _on_unexpected(self, packet: Packet, conn: FakeInjectiveConnection, info: str):
         print(info, packet)
         conn.sock.close()
-        conn.peer_sock.close()
+        if conn.peer_sock is not None:
+            conn.peer_sock.close()
         conn.monitor = False
         conn.t2a_msg = "unexpected_close"
         conn.t2a_event.set()
@@ -118,6 +126,6 @@ class TcpInjector:
 
     def run(self):
         with self.w:
-            while True:
+            while self.running:
                 pkt = self.w.recv()
                 self.inject(pkt)

@@ -817,6 +817,7 @@ def build_config(
     tun_name: str,
     routing: dict[str, Any] | None = None,
     listen_host: str = "127.0.0.1",
+    clash_api_port: int | None = None,
 ) -> dict[str, Any]:
     routing = routing or {}
     inbounds: list[dict[str, Any]] = []
@@ -889,6 +890,12 @@ def build_config(
             "final": "proxy",
         },
     }
+    if clash_api_port is not None:
+        config["experimental"] = {
+            "clash_api": {
+                "external_controller": f"127.0.0.1:{clash_api_port}",
+            }
+        }
     return config
 
 
@@ -899,6 +906,7 @@ class RunningInstance:
     workdir: Path
     socks_port: int
     http_port: int
+    clash_api_port: int | None
     listen_host: str
     stdout_path: Path
     stderr_path: Path
@@ -994,12 +1002,23 @@ def start_profile(
     routing: dict[str, Any] | None = None,
     listen_host: str = "127.0.0.1",
     config_name: str = "config.json",
+    enable_clash_api: bool = False,
 ) -> RunningInstance:
     workdir = Path(tempfile.mkdtemp(prefix="fracture_singbox_", dir=settings.configs_dir.as_posix()))
     config_path = workdir / config_name
     stdout_path = workdir / "stdout.log"
     stderr_path = workdir / "stderr.log"
-    config = build_config(profile, mode, socks_port, http_port, tun_name, routing=routing, listen_host=listen_host)
+    clash_api_port = pick_free_port() if enable_clash_api else None
+    config = build_config(
+        profile,
+        mode,
+        socks_port,
+        http_port,
+        tun_name,
+        routing=routing,
+        listen_host=listen_host,
+        clash_api_port=clash_api_port,
+    )
     config_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
 
     with stdout_path.open("wb") as stdout_handle, stderr_path.open("wb") as stderr_handle:
@@ -1016,6 +1035,7 @@ def start_profile(
         workdir=workdir,
         socks_port=socks_port,
         http_port=http_port,
+        clash_api_port=clash_api_port,
         listen_host=listen_host,
         stdout_path=stdout_path,
         stderr_path=stderr_path,
@@ -1080,6 +1100,7 @@ def acquire_warm_instance(
     routing: dict[str, Any] | None = None,
     listen_host: str = "127.0.0.1",
     config_name: str = "config.json",
+    enable_clash_api: bool = False,
 ) -> RunningInstance:
     key = _profile_cache_key(profile, routing, listen_host)
     with _WARM_INSTANCES_LOCK:
@@ -1099,6 +1120,7 @@ def acquire_warm_instance(
         routing=routing,
         listen_host=listen_host,
         config_name=config_name,
+        enable_clash_api=enable_clash_api,
     )
 
     with _WARM_INSTANCES_LOCK:

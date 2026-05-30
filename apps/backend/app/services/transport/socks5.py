@@ -7,12 +7,10 @@ from .traffic import _traffic
 
 
 class Socks5Server:
-    def __init__(self, host: str, port: int, interface_ipv4: str, connect_ip: str, connect_port: int, fake_sni: bytes):
+    def __init__(self, host: str, port: int, interface_ipv4: str, fake_sni: bytes):
         self.host = host
         self.port = port
         self.interface_ipv4 = interface_ipv4
-        self.connect_ip = connect_ip
-        self.connect_port = connect_port
         self.fake_sni = fake_sni
         self.server: Optional[asyncio.Server] = None
 
@@ -81,7 +79,10 @@ class Socks5Server:
             print(f"SOCKS5 error: {e}")
         finally:
             writer.close()
-            await writer.wait_closed()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
 
     async def _relay_with_count(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter, is_upload: bool):
         try:

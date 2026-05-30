@@ -96,4 +96,10 @@ body {
 
 * {
   box-sizing: border-box;
+  scrollbar-width: thin;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 5px;
 }

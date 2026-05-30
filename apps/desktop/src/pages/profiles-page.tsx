@@ -19,6 +19,12 @@ type ContextMenuState = {
 };
 
 type MetricOverrides = Record<string, number | null | undefined>;
+type ProfileMetricEvent = CustomEvent<{
+  type: "ping" | "speed";
+  profileId: string;
+  latencyMs?: number | null;
+  speedMBps?: number | null;
+}>;
 
 const CONTEXT_MENU_WIDTH = 180;
 const CONTEXT_MENU_HEIGHT = 234;
@@ -67,6 +73,32 @@ export function ProfilesPage() {
   useEffect(() => {
     setOrderedProfiles(data);
   }, [data]);
+
+  useEffect(() => {
+    const onMetric = (event: Event) => {
+      const detail = (event as ProfileMetricEvent).detail;
+      if (!detail?.profileId) return;
+      if (detail.type === "ping") {
+        setTestingPingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(detail.profileId);
+          return next;
+        });
+        setPingOverrides((prev) => ({ ...prev, [detail.profileId]: detail.latencyMs }));
+      }
+      if (detail.type === "speed") {
+        setTestingSpeedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(detail.profileId);
+          return next;
+        });
+        setSpeedOverrides((prev) => ({ ...prev, [detail.profileId]: detail.speedMBps }));
+      }
+    };
+
+    window.addEventListener("fracture-profile-metric", onMetric);
+    return () => window.removeEventListener("fracture-profile-metric", onMetric);
+  }, []);
 
   useEffect(() => {
     const onPointerDown = () => setContextMenu(null);
