@@ -4,6 +4,7 @@ import json
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import core_router, health_router, profiles_router, settings_router
@@ -50,6 +51,18 @@ app.include_router(health_router)
 app.include_router(core_router)
 app.include_router(profiles_router)
 app.include_router(settings_router)
+
+
+class UiLogPayload(BaseModel):
+    level: str = Field(pattern="^(debug|info|warning|error)$")
+    message: str = Field(min_length=1, max_length=1000)
+
+
+@app.post("/api/logs")
+async def app_log(payload: UiLogPayload) -> dict:
+    hub: WsEventHub = app.state.ws_hub
+    await hub.publish_log(payload.level, payload.message)
+    return {"ok": True}
 
 
 @app.websocket("/ws/events")

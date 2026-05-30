@@ -36,6 +36,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   health: () => request<{ ok: boolean; version: string }>("/health"),
   status: () => request<CoreStatus>("/api/core/status"),
+  logUiEvent: (level: "debug" | "info" | "warning" | "error", message: string) =>
+    request<{ ok: boolean }>("/api/logs", {
+      method: "POST",
+      body: JSON.stringify({ level, message })
+    }),
   start: (profileId?: string | null) =>
     request<CoreStatus>("/api/core/start", {
       method: "POST",

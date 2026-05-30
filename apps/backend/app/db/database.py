@@ -51,6 +51,7 @@ _DEFAULT_APP_SETTINGS_DOC: dict[str, Any] = {
         "updateChannel": "stable",
         "runOnStartup": False,
         "closeToTray": True,
+        "showDevelopmentLogs": False,
     },
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Plus, Save, Trash2, Laptop, Network } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
@@ -24,7 +25,8 @@ const DEFAULT_UI: UiSettings = {
   theme: "system",
   updateChannel: "stable",
   runOnStartup: false,
-  closeToTray: true
+  closeToTray: true,
+  showDevelopmentLogs: false
 };
 
 const DEFAULT_LISTENER: CloudflareListener = {
@@ -94,6 +96,7 @@ function applyTheme(theme: UiSettings["theme"]) {
 }
 
 export function SettingsPage() {
+  const queryClient = useQueryClient();
   const { data: cloudflareData, refetch: refetchCloudflare } = useCloudflareConfigQuery();
   const { data: coreData, refetch: refetchCore } = useCoreSettingsQuery();
   const { data: uiData, refetch: refetchUi } = useUiSettingsQuery();
@@ -128,8 +131,9 @@ export function SettingsPage() {
 
   useEffect(() => {
     if (uiData) {
-      setUiDraft(uiData);
-      applyTheme(uiData.theme);
+      const nextUi = { ...DEFAULT_UI, ...uiData };
+      setUiDraft(nextUi);
+      applyTheme(nextUi.theme);
     }
   }, [uiData]);
 
@@ -271,7 +275,8 @@ export function SettingsPage() {
     setUiDraft(next);
     applyTheme(theme);
     try {
-      await api.saveUiSettings(next);
+      const saved = await api.saveUiSettings(next);
+      queryClient.setQueryData(["ui-settings"], saved);
       await invoke("apply_shell_settings");
       await refetchUi();
     } catch (error) {
@@ -286,7 +291,8 @@ export function SettingsPage() {
       applyTheme(next.theme);
     }
     try {
-      await api.saveUiSettings(next);
+      const saved = await api.saveUiSettings(next);
+      queryClient.setQueryData(["ui-settings"], saved);
       await invoke("apply_shell_settings");
       await refetchUi();
     } catch (error) {
@@ -459,6 +465,24 @@ export function SettingsPage() {
               onCheckedChange={(checked) =>
                 void updateUiSettings({
                   closeToTray: checked
+                })
+              }
+            />
+          </label>
+
+          <label className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+            <div>
+              <div className="font-medium">Show Development Logs</div>
+              <div className="text-xs text-textMuted">
+                Show verbose debug entries in the Logs tab.
+              </div>
+            </div>
+
+            <Switch
+              checked={uiDraft.showDevelopmentLogs}
+              onCheckedChange={(checked) =>
+                void updateUiSettings({
+                  showDevelopmentLogs: checked
                 })
               }
             />

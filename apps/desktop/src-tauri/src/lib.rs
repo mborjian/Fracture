@@ -6,6 +6,7 @@ use std::io::{Read, Write};
 use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::thread;
 #[cfg(windows)]
@@ -20,6 +21,7 @@ use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
 
 static BACKEND_CHILD: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(None));
+static BACKEND_SHUTTING_DOWN: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
 
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
@@ -234,6 +236,14 @@ fn call_local_api(method: &str, path: &str, body: &str) -> Result<String, String
     Ok(String::new())
 }
 
+fn emit_ui_log(level: &str, message: &str) {
+    let payload = serde_json::json!({
+        "level": level,
+        "message": message,
+    });
+    let _ = call_local_api("POST", "/api/logs", &payload.to_string());
+}
+
 fn read_app_settings() -> AppSettings {
     let path = app_settings_path();
     let raw = match fs::read_to_string(path) {
@@ -321,12 +331,26 @@ fn tray_toggle_connection(app: &AppHandle) {
     let app_handle = app.clone();
     thread::spawn(move || {
         let status = read_runtime_status();
-        let result = if status.state == "running" || status.state == "starting" {
+        let was_connecting = status.state == "running" || status.state == "starting";
+        let result = if was_connecting {
+            emit_ui_log("debug", "Disconnect requested from tray");
             call_local_api("POST", "/api/core/stop", "{}")
         } else {
+            emit_ui_log("debug", "Connect requested from tray");
             call_local_api("POST", "/api/core/start", r#"{"profile_id":null}"#)
         };
-        let _ = result;
+        match result {
+            Ok(_) => {
+                if was_connecting {
+                    emit_ui_log("info", "Disconnected from tray");
+                } else {
+                    emit_ui_log("info", "Connected from tray");
+                }
+            }
+            Err(error) => {
+                emit_ui_log("error", &format!("Tray connection action failed: {error}"));
+            }
+        }
         refresh_tray_menu(&app_handle);
     });
 }
@@ -397,6 +421,17 @@ fn terminate_backend_child(mut child: Child) {
 
     let _ = child.wait();
     kill_backend_port_owners();
+}
+
+fn begin_backend_shutdown(app: AppHandle) {
+    if BACKEND_SHUTTING_DOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+
+    thread::spawn(move || {
+        let _ = stop_backend();
+        app.exit(0);
+    });
 }
 
 #[tauri::command]
@@ -501,8 +536,7 @@ pub fn run() {
                     "toggle_connection" => tray_toggle_connection(app),
                     "toggle_lan" => tray_toggle_lan(app),
                     "quit" => {
-                        let _ = stop_backend();
-                        app.exit(0);
+                        begin_backend_shutdown(app.clone());
                     }
                     _ => {}
                 })
@@ -537,9 +571,9 @@ pub fn run() {
                     api.prevent_close();
                     let _ = window.hide();
                 } else {
-                    let _ = stop_backend();
                     api.prevent_close();
-                    window.app_handle().exit(0);
+                    let _ = window.hide();
+                    begin_backend_shutdown(window.app_handle().clone());
                 }
             }
         })
@@ -548,9 +582,6 @@ pub fn run() {
 
     app.run(|handle, event| {
         match event {
-            tauri::RunEvent::ExitRequested { .. } | tauri::RunEvent::Exit => {
-                let _ = stop_backend();
-            }
             tauri::RunEvent::Ready => {
                 refresh_tray_menu(handle);
             }

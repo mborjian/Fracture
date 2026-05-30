@@ -1,7 +1,8 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
+import { useUiSettingsQuery } from "@/hooks/useBackendQuery";
 import { useAppStore } from "@/store/useAppStore";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 
@@ -24,7 +25,19 @@ function formatShortLogTime(value: string): string {
 export function LogsPage() {
   const logs = useAppStore((s) => s.logs);
   const clearLogs = useAppStore((s) => s.clearLogs);
+  const { data: uiSettings } = useUiSettingsQuery();
   const [filter, setFilter] = useState<(typeof LOG_FILTERS)[number]["id"]>("all");
+  const showDevelopmentLogs = uiSettings?.showDevelopmentLogs ?? false;
+  const visibleFilters = useMemo(
+    () => LOG_FILTERS.filter((item) => showDevelopmentLogs || item.id !== "debug"),
+    [showDevelopmentLogs]
+  );
+
+  useEffect(() => {
+    if (!showDevelopmentLogs && filter === "debug") {
+      setFilter("all");
+    }
+  }, [filter, showDevelopmentLogs]);
 
   const sortedLogs = useMemo(
     () =>
@@ -39,10 +52,11 @@ export function LogsPage() {
   const filtered = useMemo(
     () =>
       sortedLogs.filter((line) => {
+        if (!showDevelopmentLogs && line.level === "debug") return false;
         if (filter === "all") return true;
         return line.level === filter;
       }),
-    [filter, sortedLogs]
+    [filter, showDevelopmentLogs, sortedLogs]
   );
 
   return (
@@ -53,7 +67,7 @@ export function LogsPage() {
             if (value) setFilter(value as LogFilter);
           }}
         >
-          {LOG_FILTERS.map((item) => (
+          {visibleFilters.map((item) => (
             <ToggleGroupItem key={item.id} value={item.id}>
               {item.label}
             </ToggleGroupItem>

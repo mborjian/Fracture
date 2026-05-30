@@ -69,6 +69,7 @@ export function DashboardPage() {
   const { data: profiles = [] } = useProfilesQuery();
   const setStatus = useAppStore((s) => s.setStatus);
   const status = useAppStore((s) => s.status);
+  const addLog = useAppStore((s) => s.addLog);
   const [pendingAction, setPendingAction] = useState<PendingAction>("idle");
 
   useEffect(() => {
@@ -113,9 +114,25 @@ export function DashboardPage() {
   const toggle = async () => {
     try {
       if (isConnected || state === "starting") {
+        void api.logUiEvent("debug", "Disconnect requested from dashboard").catch(() => {
+          addLog({
+            id: `ui-disconnect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ts: new Date().toISOString(),
+            level: "debug",
+            message: "Disconnect requested from dashboard"
+          });
+        });
         setPendingAction("disconnecting");
         const next = await api.stop();
         setStatus(next);
+        void api.logUiEvent("info", "Disconnected from dashboard").catch(() => {
+          addLog({
+            id: `ui-disconnect-info-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ts: new Date().toISOString(),
+            level: "info",
+            message: "Disconnected from dashboard"
+          });
+        });
         toast.success("Disconnected");
       } else {
         if (!status?.activeProfileId && profiles.length === 0) {
@@ -123,16 +140,50 @@ export function DashboardPage() {
           setPendingAction("idle");
           return;
         }
+        void api
+          .logUiEvent(
+            "debug",
+            `Connect requested from dashboard using profile ${status?.activeProfileId ?? "auto"}`
+          )
+          .catch(() => {
+            addLog({
+              id: `ui-connect-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              ts: new Date().toISOString(),
+              level: "debug",
+              message: `Connect requested from dashboard using profile ${status?.activeProfileId ?? "auto"}`
+            });
+          });
         setPendingAction("connecting");
         const next = await api.start(status?.activeProfileId ?? null);
         if (next.state !== "running" || !next.ready) {
           throw new Error(next.lastError || "Connection failed to start");
         }
         setStatus(next);
+        void api
+          .logUiEvent("info", `Connected from dashboard with ${next.runtime === "tcp-inject" ? "TCP injector" : "sing-box"}`)
+          .catch(() => {
+            addLog({
+              id: `ui-connect-info-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              ts: new Date().toISOString(),
+              level: "info",
+              message: `Connected from dashboard with ${next.runtime === "tcp-inject" ? "TCP injector" : "sing-box"}`
+            });
+          });
         const runtimeName = next.runtime === "tcp-inject" ? "TCP injector" : "sing-box";
         toast.success(`Connection started with ${runtimeName}`);
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      void api
+        .logUiEvent("error", `Connection failed: ${message}`)
+        .catch(() => {
+          addLog({
+            id: `ui-connect-error-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+            ts: new Date().toISOString(),
+            level: "error",
+            message: `Connection failed: ${message}`
+          });
+        });
       setPendingAction("idle");
       toast.error("Connection failed");
     }

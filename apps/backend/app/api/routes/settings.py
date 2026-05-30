@@ -55,6 +55,7 @@ class UiSettingsPayload(BaseModel):
     updateChannel: str = Field(default="stable")
     runOnStartup: bool = False
     closeToTray: bool = True
+    showDevelopmentLogs: bool = False
 
 
 def _runtime_service(request: Request) -> CoreRuntimeService:

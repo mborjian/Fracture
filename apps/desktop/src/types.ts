@@ -94,6 +94,7 @@ export interface UiSettings {
   updateChannel: string;
   runOnStartup: boolean;
   closeToTray: boolean;
+  showDevelopmentLogs: boolean;
 }
 
 export interface LogEvent {
