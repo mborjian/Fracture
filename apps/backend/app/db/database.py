@@ -155,6 +155,9 @@ def _normalize_cloudflare_doc(payload: dict[str, Any]) -> dict[str, Any]:
 
 async def init_db() -> None:
     settings.data_dir.mkdir(parents=True, exist_ok=True)
+    settings.configs_dir.mkdir(parents=True, exist_ok=True)
+    settings.singbox_dir.mkdir(parents=True, exist_ok=True)
+    settings.binaries_dir.mkdir(parents=True, exist_ok=True)
     if not settings.profiles_path.exists():
         _write_json(settings.profiles_path, _DEFAULT_PROFILES_DOC)
     else:
