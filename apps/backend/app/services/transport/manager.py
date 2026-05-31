@@ -22,6 +22,8 @@ _http_server: Optional[HttpProxyServer] = None
 _socks_loop: Optional[asyncio.AbstractEventLoop] = None
 _active_socks_port: Optional[int] = None
 _active_http_port: Optional[int] = None
+_target_connect_ip: Optional[str] = None
+_target_connect_port: Optional[int] = None
 
 
 def start_injector(
@@ -29,12 +31,13 @@ def start_injector(
     connect_ip: str,
     connect_port: int,
     fake_sni: bytes,
-    socks_port: int,
-    http_port: int,
+    socks_port: Optional[int],
+    http_port: Optional[int],
     listen_host: str = "127.0.0.1",
+    start_local_proxies: bool = True,
 ):
     """Launch the WinDivert injector and local SOCKS/HTTP proxies."""
-    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port
+    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
 
     if _running:
         stop_injector()
@@ -49,6 +52,8 @@ def start_injector(
     _running = True
     _active_socks_port = socks_port
     _active_http_port = http_port
+    _target_connect_ip = connect_ip
+    _target_connect_port = connect_port
 
     # Start WinDivert capture thread
     def _run():
@@ -57,6 +62,16 @@ def start_injector(
 
     _injector_thread = threading.Thread(target=_run, daemon=True)
     _injector_thread.start()
+
+    if not start_local_proxies:
+        _proxy_thread = None
+        _socks_server = None
+        _http_server = None
+        _socks_loop = None
+        return True
+
+    if socks_port is None or http_port is None:
+        raise ValueError("socks_port and http_port are required when start_local_proxies=True")
 
     # Start local proxies in their own asyncio loop.
     _socks_loop = asyncio.new_event_loop()
@@ -88,7 +103,7 @@ def start_injector(
 
 def stop_injector():
     """Stop WinDivert injector and SOCKS5 proxy."""
-    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port
+    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
     _running = False
 
     if _injector is not None:
@@ -128,6 +143,8 @@ def stop_injector():
     _connections.clear()
     _active_socks_port = None
     _active_http_port = None
+    _target_connect_ip = None
+    _target_connect_port = None
 
 
 def get_active_socks_port() -> Optional[int]:
@@ -138,6 +155,28 @@ def get_active_socks_port() -> Optional[int]:
 def get_active_http_port() -> Optional[int]:
     """Return the HTTP port currently used by the injector, if any."""
     return _active_http_port
+
+
+def get_injector_target() -> tuple[Optional[str], Optional[int]]:
+    """Return the fixed remote target used for tcp-inject mode."""
+    return _target_connect_ip, _target_connect_port
+
+
+def get_injector_diagnostics() -> dict:
+    """Return lightweight runtime diagnostics for tcp-inject troubleshooting."""
+    connect_ip, connect_port = get_injector_target()
+    injector_alive = bool(_injector_thread and _injector_thread.is_alive())
+    proxy_alive = bool(_proxy_thread and _proxy_thread.is_alive())
+    return {
+        "running": bool(_running),
+        "injectorThreadAlive": injector_alive,
+        "proxyThreadAlive": proxy_alive,
+        "activeSocksPort": _active_socks_port,
+        "activeHttpPort": _active_http_port,
+        "targetConnectIp": connect_ip,
+        "targetConnectPort": connect_port,
+        "activeMonitoredConnections": len(_connections),
+    }
 
 
 def test_delay_via_socks5(timeout_s: float = 3.0) -> float:
@@ -225,8 +264,8 @@ def _socks5_connect(proxy_host: str, proxy_port: int, target_host: str, target_p
 async def establish_connection(
         loop: asyncio.AbstractEventLoop,
         interface_ipv4: str,
-        connect_ip: str,
-        connect_port: int,
+        connect_ip: Optional[str],
+        connect_port: Optional[int],
         fake_sni: bytes,
         peer_sock: socket.socket
 ) -> tuple[bool, str, Optional[socket.socket]]:
@@ -234,6 +273,13 @@ async def establish_connection(
     Perform the TCP handshake and fake TLS injection.
     Returns (success, message, outgoing_socket) or (False, error, None).
     """
+    target_ip = connect_ip
+    target_port = connect_port
+    if not target_ip or not target_port:
+        target_ip, target_port = get_injector_target()
+    if not target_ip or not target_port:
+        return False, "injector target is not configured", None
+
     outgoing = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     outgoing.setblocking(False)
     outgoing.bind((interface_ipv4, 0))
@@ -243,13 +289,13 @@ async def establish_connection(
         os.urandom(32), os.urandom(32), fake_sni, os.urandom(32)
     )
     conn = FakeInjectiveConnection(
-        outgoing, interface_ipv4, connect_ip, src_port, connect_port,
+        outgoing, interface_ipv4, target_ip, src_port, int(target_port),
         fake_data, "wrong_seq", peer_sock
     )
     _connections[conn.id] = conn
 
     try:
-        await loop.sock_connect(outgoing, (connect_ip, connect_port))
+        await loop.sock_connect(outgoing, (target_ip, int(target_port)))
     except Exception as e:
         _connections.pop(conn.id, None)
         outgoing.close()

@@ -56,10 +56,10 @@ class Socks5Server:
             # Lazy import avoids a startup-time circular import with manager.py.
             from .manager import establish_connection
 
-            # Establish injection connection to remote server
+            # Establish connection to the fixed tcp-inject upstream target.
             loop = asyncio.get_running_loop()
             success, _msg, outgoing_sock = await establish_connection(
-                loop, self.interface_ipv4, remote_host, remote_port, self.fake_sni, None
+                loop, self.interface_ipv4, None, None, self.fake_sni, None
             )
             if not success or outgoing_sock is None:
                 writer.write(b"\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00")

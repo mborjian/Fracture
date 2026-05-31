@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import ctypes
 import json
 import logging
+import os
 import socket
 import time
 import urllib.error
@@ -297,12 +299,11 @@ class CoreRuntimeService:
         routing = await fetch_routing_config()
         core_settings = await fetch_core_settings()
         transport_mode = core_settings.get("transportMode", "singbox")
-
-        if transport_mode == "tcp-inject":
-            # Use TCP injection instead of sing-box
-            await self._emit_log_locked("info", f"runtime mode=tcp-inject profile={profile_id}")
-            await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
-            return
+        if transport_mode == "tcp-inject" and not self._has_admin_privileges():
+            raise RuntimeError(
+                "TCP Inject mode requires Administrator privileges on Windows. "
+                "Please restart Fracture as Administrator."
+            )
 
         binary_path = settings.singbox_dir / self._binary_name("sing-box")
         if not binary_path.exists():
@@ -315,7 +316,7 @@ class CoreRuntimeService:
         self._status.listen_host = listen_host
         await self._emit_log_locked(
             "debug",
-            f"runtime mode=sing-box profile={profile_id} network={mode} listen={listen_host}:{http_port}/{socks_port}",
+            f"runtime mode={transport_mode} profile={profile_id} network={mode} listen={listen_host}:{http_port}/{socks_port}",
         )
 
         instance = await asyncio.to_thread(
@@ -334,6 +335,10 @@ class CoreRuntimeService:
         self._instance = instance
         await self._ensure_readiness_locked()
 
+        if transport_mode == "tcp-inject":
+            await self._emit_log_locked("info", f"runtime mode=tcp-inject profile={profile_id}")
+            await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
+
     async def _spawn_tcp_inject_locked(self, profile: Profile, core_settings: dict, listener: dict | None) -> None:
         # Build real server details from listener (same as _apply_cloudflare_listener)
         if listener and profile.server in {"127.0.0.1", "0.0.0.0", "localhost"}:
@@ -348,7 +353,8 @@ class CoreRuntimeService:
             fake_sni = profile.sni or ""
 
         interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
-        # Start the background injector
+        # Start the background injector as a transport hook while sing-box
+        # remains responsible for outbound protocol handling.
         socks_port = int(core_settings.get("socksPort", 2081))
         http_port = int(core_settings.get("proxyPort", 2080))
         listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
@@ -360,22 +366,22 @@ class CoreRuntimeService:
             connect_ip,
             connect_port,
             fake_sni.encode(),
-            socks_port,
-            http_port,
+            None,
+            None,
             listen_host,
+            False,
         )
         await self._emit_log_locked(
             "debug",
             f"tcp-inject interface={interface_ipv4} target={connect_ip}:{connect_port} listen={listen_host}:{http_port}/{socks_port}",
         )
+        await self._emit_log_locked(
+            "info",
+            f"tcp-inject self-check hint: GET /api/core/self-check (target={connect_ip}:{connect_port})",
+        )
 
-        # Now we need to "claim" that the runtime is ready – but the actual per‑connection
-        # injection will happen inside handle() of the main TCP listener.
-        # For status reporting we mark as running immediately.
-        self._status.ready = True
+        # Runtime readiness is managed by sing-box; injector runs in parallel.
         self._status.runtime = "tcp-inject"
-        # We won't have a sing‑box process, so we set instance to None
-        self._instance = None
 
     async def _ensure_readiness_locked(self) -> None:
         if self._instance is None:
@@ -558,16 +564,12 @@ class CoreRuntimeService:
         ip = payload.get("ip")
         country = payload.get("country")
         latency_ms = payload.get("latencyMs")
-        download_bps = payload.get("downloadBps")
-
         if ip:
             self._status.egress_ip = ip
         if country:
             self._status.egress_country = country
         if isinstance(latency_ms, int):
             self._status.latency_ms = latency_ms
-        if isinstance(download_bps, (int, float)):
-            self._status.download_bps = float(download_bps)
 
     async def _refresh_runtime_metadata_locked(self) -> None:
         core_settings = await fetch_core_settings()
@@ -620,7 +622,6 @@ class CoreRuntimeService:
             "ip": None,
             "country": None,
             "latencyMs": None,
-            "downloadBps": None,
         }
 
         start = datetime.now(timezone.utc)
@@ -634,7 +635,7 @@ class CoreRuntimeService:
         try:
             with opener.open("https://ipapi.co/json", timeout=5) as response:
                 data = json.loads(response.read().decode("utf-8", errors="replace"))
-                payload["country"] = data.get("country_name")
+                payload["country"] = data.get("country") or data.get("country_code") or data.get("country_name")
                 if not payload.get("ip"):
                     payload["ip"] = data.get("ip")
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
@@ -642,7 +643,6 @@ class CoreRuntimeService:
 
         elapsed = max((datetime.now(timezone.utc) - start).total_seconds(), 0.001)
         payload["latencyMs"] = max(1, int(elapsed * 1000))
-        payload["downloadBps"] = 0.0
         return payload
 
     def _read_singbox_traffic_delta(self) -> tuple[int | None, int | None]:
@@ -705,3 +705,12 @@ class CoreRuntimeService:
             if candidate:
                 return candidate
         return None
+
+    @staticmethod
+    def _has_admin_privileges() -> bool:
+        if os.name != "nt":
+            return True
+        try:
+            return bool(ctypes.windll.shell32.IsUserAnAdmin())
+        except Exception:
+            return False

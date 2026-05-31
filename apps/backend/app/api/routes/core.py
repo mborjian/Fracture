@@ -6,6 +6,7 @@ from pydantic import BaseModel
 from app.db.database import fetch_core_settings
 from app.services.profiles import list_profiles
 from app.services.runtime import CoreRuntimeService
+from app.services.transport import manager as transport_manager
 
 router = APIRouter(prefix="/api/core", tags=["core"])
 
@@ -80,3 +81,42 @@ async def core_health(request: Request) -> dict:
         }
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@router.get("/self-check")
+async def core_self_check(request: Request) -> dict:
+    runtime_service = _runtime_service(request)
+    status = await runtime_service.get_status()
+    runtime_mode = status.get("runtime")
+    injector = transport_manager.get_injector_diagnostics()
+    issues: list[str] = []
+
+    if runtime_mode != "tcp-inject":
+        issues.append("runtime mode is not tcp-inject")
+    if runtime_mode == "tcp-inject":
+        if not injector.get("running"):
+            issues.append("injector is not running")
+        if not injector.get("injectorThreadAlive"):
+            issues.append("injector thread is not alive")
+        if not injector.get("proxyThreadAlive"):
+            issues.append("proxy thread is not alive")
+        if not injector.get("targetConnectIp"):
+            issues.append("injector target CONNECT_IP is empty")
+        if not injector.get("targetConnectPort"):
+            issues.append("injector target CONNECT_PORT is empty")
+
+    return {
+        "ok": len(issues) == 0,
+        "runtime": {
+            "state": status.get("state"),
+            "ready": status.get("ready"),
+            "runtime": runtime_mode,
+            "activeProfileId": status.get("activeProfileId"),
+            "listenHost": status.get("listenHost"),
+            "httpPort": status.get("httpPort"),
+            "socksPort": status.get("socksPort"),
+            "lastError": status.get("lastError"),
+        },
+        "injector": injector,
+        "issues": issues,
+    }

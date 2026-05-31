@@ -66,7 +66,7 @@ class HttpProxyServer:
 
         loop = asyncio.get_running_loop()
         success, message, outgoing_sock = await establish_connection(
-            loop, self.interface_ipv4, host, port, self.fake_sni, None
+            loop, self.interface_ipv4, None, None, self.fake_sni, None
         )
         if not success or outgoing_sock is None:
             raise RuntimeError(message)

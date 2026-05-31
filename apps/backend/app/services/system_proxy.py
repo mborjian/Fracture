@@ -32,7 +32,7 @@ def _ensure_windows() -> None:
 
 def enable_system_proxy(host: str, port: int, bypass: str) -> dict:
     _ensure_windows()
-    proxy_server = f"http={host}:{port};https={host}:{port}"
+    proxy_server = f"{host}:{port}"
     with winreg.OpenKey(
         winreg.HKEY_CURRENT_USER,
         r"Software\Microsoft\Windows\CurrentVersion\Internet Settings",
