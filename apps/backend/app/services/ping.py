@@ -265,13 +265,13 @@ class ProfilePingService:
                         )
                         await self._emit_log("warning", f"delay profile={profile_id} failed: {exc}", trace=traceback.format_exc())
                     else:
-                        await save_profile_speed_result(profile_id, 0.0, now_iso)
+                        await save_profile_speed_result(profile_id, None, now_iso)
                         await self._publish_event(
                             "speed",
                             {
                                 "profileId": profile_id,
                                 "ok": False,
-                                "speedMBps": 0.0,
+                                "speedMBps": None,
                                 "error": str(exc),
                                 "at": now_iso,
                             },
@@ -328,7 +328,7 @@ class ProfilePingService:
                 bytes_per_sec = transport_manager.test_speed_via_socks5(timeout_s=timeout_s)
                 return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
             except Exception as exc:
-                return {"ok": False, "speedMBps": 0.0, "error": str(exc)}
+                return {"ok": False, "speedMBps": None, "error": str(exc)}
         # Else sing-box mode
         binary_path = settings.singbox_dir / self._runtime_service._binary_name("sing-box")
         if not binary_path.exists():
@@ -344,4 +344,4 @@ class ProfilePingService:
             )
             return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
         except Exception as exc:
-            return {"ok": False, "speedMBps": 0.0, "error": str(exc)}
+            return {"ok": False, "speedMBps": None, "error": str(exc)}

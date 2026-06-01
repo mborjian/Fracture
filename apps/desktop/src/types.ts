@@ -64,7 +64,6 @@ export interface CloudflareListener {
   CONNECT_IP: string;
   CONNECT_PORT: number;
   FAKE_SNI: string;
-  matchMode: "fixed_ip" | "any_443";
 }
 
 export interface CloudflareConfig {

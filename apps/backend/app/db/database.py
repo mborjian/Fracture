@@ -24,7 +24,6 @@ _DEFAULT_CLOUDFLARE_DOC: dict[str, Any] = {
             "CONNECT_IP": "",
             "CONNECT_PORT": 443,
             "FAKE_SNI": "",
-            "matchMode": "fixed_ip",
         }
     ],
 }
@@ -120,8 +119,6 @@ def _normalize_cloudflare_doc(payload: dict[str, Any]) -> dict[str, Any]:
             if not isinstance(item, dict):
                 continue
             listener_id = str(item.get("id", f"listener-{index + 1}")).strip() or f"listener-{index + 1}"
-            raw_match_mode = str(item.get("matchMode", "fixed_ip")).strip().lower()
-            match_mode = raw_match_mode if raw_match_mode in {"fixed_ip", "any_443"} else "fixed_ip"
             normalized_listeners.append(
                 {
                     "id": listener_id,
@@ -130,7 +127,6 @@ def _normalize_cloudflare_doc(payload: dict[str, Any]) -> dict[str, Any]:
                     "CONNECT_IP": str(item.get("CONNECT_IP", "")),
                     "CONNECT_PORT": int(item.get("CONNECT_PORT", 443)),
                     "FAKE_SNI": str(item.get("FAKE_SNI", "")),
-                    "matchMode": match_mode,
                 }
             )
         if not normalized_listeners:
@@ -150,7 +146,6 @@ def _normalize_cloudflare_doc(payload: dict[str, Any]) -> dict[str, Any]:
         "CONNECT_IP": str(payload.get("CONNECT_IP", "")),
         "CONNECT_PORT": int(payload.get("CONNECT_PORT", 443)),
         "FAKE_SNI": str(payload.get("FAKE_SNI", "")),
-        "matchMode": "fixed_ip",
     }
     return {
         "selectedId": "listener-default",

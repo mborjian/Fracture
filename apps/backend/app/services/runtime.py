@@ -356,10 +356,8 @@ class CoreRuntimeService:
         connect_ip = str((listener or {}).get("CONNECT_IP", "")).strip()
         connect_port = int((listener or {}).get("CONNECT_PORT", profile.port))
         fake_sni = str((listener or {}).get("FAKE_SNI", "")).strip()
-        raw_match_mode = str((listener or {}).get("matchMode", "fixed_ip")).strip().lower()
-        match_mode = raw_match_mode if raw_match_mode in {"fixed_ip", "any_443"} else "fixed_ip"
-        if match_mode == "fixed_ip" and not connect_ip:
-            raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener when matchMode=fixed_ip")
+        if not connect_ip:
+            raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
         if not fake_sni:
             raise RuntimeError("TCP Inject mode requires FAKE_SNI in listener")
 
@@ -381,16 +379,15 @@ class CoreRuntimeService:
             None,
             listen_host,
             False,
-            match_mode=match_mode,
         )
-        target_label = f"{connect_ip}:{connect_port}" if match_mode == "fixed_ip" else f"any:{connect_port}"
+        target_label = f"{connect_ip}:{connect_port}"
         await self._emit_log_locked(
             "debug",
-            f"tcp-inject interface={interface_ipv4} target={target_label} matchMode={match_mode} listen={listen_host}:{http_port}/{socks_port}",
+            f"tcp-inject interface={interface_ipv4} target={target_label} listen={listen_host}:{http_port}/{socks_port}",
         )
         await self._emit_log_locked(
             "info",
-            f"tcp-inject self-check hint: GET /api/core/self-check (matchMode={match_mode}, target={target_label})",
+            f"tcp-inject self-check hint: GET /api/core/self-check (target={target_label})",
         )
 
         # Runtime readiness is managed by sing-box; injector runs in parallel.

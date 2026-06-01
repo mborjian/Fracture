@@ -29,7 +29,7 @@ export function connectRealtime(queryClient: QueryClient) {
           return profiles.map((profile) => {
             const item = profile as Record<string, unknown>;
             return item && item.id === ping.profileId
-              ? { ...item, lastPingMs: ping.latencyMs, lastPingAt: ping.at ?? null }
+              ? { ...item, lastPingMs: ping.ok ? ping.latencyMs : item.lastPingMs, lastPingAt: ping.at ?? null }
               : profile;
           });
         });
@@ -59,7 +59,7 @@ export function connectRealtime(queryClient: QueryClient) {
           return profiles.map((profile) => {
             const item = profile as Record<string, unknown>;
             return item && item.id === speed.profileId
-              ? { ...item, lastSpeedMbps: speed.speedMBps, lastSpeedAt: speed.at ?? null }
+              ? { ...item, lastSpeedMbps: speed.ok ? speed.speedMBps : item.lastSpeedMbps, lastSpeedAt: speed.at ?? null }
               : profile;
           });
         });

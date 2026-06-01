@@ -47,7 +47,6 @@ const DEFAULT_LISTENER: CloudflareListener = {
   CONNECT_IP: "",
   CONNECT_PORT: 443,
   FAKE_SNI: "",
-  matchMode: "fixed_ip"
 };
 
 const DEFAULT_CLOUDFLARE: CloudflareConfig = {
@@ -57,7 +56,7 @@ const DEFAULT_CLOUDFLARE: CloudflareConfig = {
 };
 
 function formatListenerLabel(listener: CloudflareListener) {
-  const modeLabel = listener.matchMode === "any_443" ? "any:443" : listener.CONNECT_IP.trim() || "No Connect IP";
+  const modeLabel = listener.CONNECT_IP.trim() || "No Connect IP";
   return {
     title: listener.FAKE_SNI.trim() || "No Fake SNI",
     subtitle: modeLabel
@@ -70,8 +69,7 @@ function stripEditableFields(listener: CloudflareListener) {
     LISTEN_PORT: listener.LISTEN_PORT,
     CONNECT_IP: listener.CONNECT_IP,
     CONNECT_PORT: listener.CONNECT_PORT,
-    FAKE_SNI: listener.FAKE_SNI,
-    matchMode: listener.matchMode
+    FAKE_SNI: listener.FAKE_SNI
   };
 }
 
@@ -80,7 +78,7 @@ function validateListenerPayload(parsed: unknown): Omit<CloudflareListener, "id"
     throw new Error("Listener JSON must be an object");
   }
   const object = parsed as Record<string, unknown>;
-  const requiredKeys = ["LISTEN_HOST", "LISTEN_PORT", "CONNECT_IP", "CONNECT_PORT", "FAKE_SNI", "matchMode"] as const;
+  const requiredKeys = ["LISTEN_HOST", "LISTEN_PORT", "CONNECT_IP", "CONNECT_PORT", "FAKE_SNI"] as const;
   const keys = Object.keys(object);
   for (const key of requiredKeys) {
     if (!(key in object)) {
@@ -92,18 +90,13 @@ function validateListenerPayload(parsed: unknown): Omit<CloudflareListener, "id"
       throw new Error(`Unexpected key: ${key}`);
     }
   }
-  const rawMode = String(object.matchMode ?? "fixed_ip").trim().toLowerCase();
-  const normalizedMode = rawMode === "any_443" ? "any_443" : rawMode === "fixed_ip" ? "fixed_ip" : "";
-  if (!normalizedMode) {
-    throw new Error("matchMode must be 'fixed_ip' or 'any_443'");
-  }
+
   return {
     LISTEN_HOST: String(object.LISTEN_HOST ?? ""),
     LISTEN_PORT: Number(object.LISTEN_PORT ?? 0),
     CONNECT_IP: String(object.CONNECT_IP ?? ""),
     CONNECT_PORT: Number(object.CONNECT_PORT ?? 0),
-    FAKE_SNI: String(object.FAKE_SNI ?? ""),
-    matchMode: normalizedMode
+    FAKE_SNI: String(object.FAKE_SNI ?? "")
   };
 }
 
@@ -444,10 +437,19 @@ export function SettingsPage() {
           <ToggleGroup type="single" value={coreDraft.proxyScope} className="w-[180px] mx-auto mb-5"
             onValueChange={(value) => {
               if (value) {
+                const nextScope = value as "local" | "lan";
                 void saveProxySettings({
                   ...coreDraft,
-                  proxyScope: value as "local" | "lan",
+                  proxyScope: nextScope,
                 });
+                if (nextScope === "lan" && routingDraft.tunMode) {
+                  void saveRoutingSettings({
+                    ...routingDraft,
+                    tunMode: false,
+                    outboundMode: "proxy"
+                  });
+                  toast.info("LAN proxy sharing turned off Full System Tunnel so only one whole-device mode stays active.");
+                }
               }
             }}
           >
@@ -461,18 +463,30 @@ export function SettingsPage() {
               <div className="text-xs text-textMuted">
                 Routes Windows traffic through sing-box TUN instead of relying only on app proxy support.
               </div>
+              {coreDraft.proxyScope === "lan" ? (
+                <div className="mt-1 text-xs text-warning">
+                  Turning this on will switch proxy sharing back to Local.
+                </div>
+              ) : null}
             </div>
 
             <Switch
               checked={routingDraft.tunMode}
               disabled={savingRouting}
-              onCheckedChange={(checked) =>
+              onCheckedChange={(checked) => {
                 void saveRoutingSettings({
                   ...routingDraft,
                   tunMode: checked,
                   outboundMode: checked ? "tun" : "proxy"
-                })
-              }
+                });
+                if (checked && coreDraft.proxyScope === "lan") {
+                  void saveProxySettings({
+                    ...coreDraft,
+                    proxyScope: "local"
+                  });
+                  toast.info("Full System Tunnel switched proxy sharing back to Local so only one whole-device mode stays active.");
+                }
+              }}
             />
           </label>
 

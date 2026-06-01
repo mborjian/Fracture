@@ -1,10 +1,10 @@
 import asyncio
+import concurrent.futures
+import contextlib
 import os
 import socket
 import threading
 import time
-import contextlib
-import concurrent.futures
 from typing import Optional
 
 from .http_proxy import HttpProxyServer
@@ -24,42 +24,33 @@ _active_socks_port: Optional[int] = None
 _active_http_port: Optional[int] = None
 _target_connect_ip: Optional[str] = None
 _target_connect_port: Optional[int] = None
-_match_mode: str = "fixed_ip"
 
 
 def start_injector(
-    interface_ipv4: str,
-    connect_ip: str,
-    connect_port: int,
-    fake_sni: bytes,
-    socks_port: Optional[int],
-    http_port: Optional[int],
-    listen_host: str = "127.0.0.1",
-    start_local_proxies: bool = True,
-    match_mode: str = "fixed_ip",
+        interface_ipv4: str,
+        connect_ip: str,
+        connect_port: int,
+        fake_sni: bytes,
+        socks_port: Optional[int],
+        http_port: Optional[int],
+        listen_host: str = "127.0.0.1",
+        start_local_proxies: bool = True,
 ):
     """Launch the WinDivert injector and local SOCKS/HTTP proxies."""
-    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _match_mode
+    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
 
     if _running:
         stop_injector()
 
     _connections.clear()
-    normalized_match_mode = match_mode if match_mode in {"fixed_ip", "any_443"} else "fixed_ip"
     connect_port = int(connect_port)
-    if normalized_match_mode == "fixed_ip" and not str(connect_ip).strip():
-        raise ValueError("connect_ip is required when match_mode=fixed_ip")
+    if not str(connect_ip).strip():
+        raise ValueError("connect_ip is required")
 
-    if normalized_match_mode == "fixed_ip":
-        w_filter = (
-            f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip} and tcp.DstPort == {connect_port}) or "
-            f"(ip.SrcAddr == {connect_ip} and ip.DstAddr == {interface_ipv4} and tcp.SrcPort == {connect_port}))"
-        )
-    else:
-        w_filter = (
-            f"tcp and ((ip.SrcAddr == {interface_ipv4} and tcp.DstPort == {connect_port}) or "
-            f"(ip.DstAddr == {interface_ipv4} and tcp.SrcPort == {connect_port}))"
-        )
+    w_filter = (
+        f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip} and tcp.DstPort == {connect_port}) or "
+        f"(ip.SrcAddr == {connect_ip} and ip.DstAddr == {interface_ipv4} and tcp.SrcPort == {connect_port}))"
+    )
 
     injector = TcpInjector(
         w_filter,
@@ -72,9 +63,8 @@ def start_injector(
     _running = True
     _active_socks_port = socks_port
     _active_http_port = http_port
-    _target_connect_ip = connect_ip if normalized_match_mode == "fixed_ip" else None
+    _target_connect_ip = connect_ip
     _target_connect_port = connect_port
-    _match_mode = normalized_match_mode
 
     # Start WinDivert capture thread
     def _run():
@@ -124,7 +114,7 @@ def start_injector(
 
 def stop_injector():
     """Stop WinDivert injector and SOCKS5 proxy."""
-    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _match_mode
+    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
     _running = False
 
     if _injector is not None:
@@ -166,7 +156,6 @@ def stop_injector():
     _active_http_port = None
     _target_connect_ip = None
     _target_connect_port = None
-    _match_mode = "fixed_ip"
 
 
 def get_active_socks_port() -> Optional[int]:
@@ -196,7 +185,6 @@ def get_injector_diagnostics() -> dict:
         "proxyMode": "local-proxy" if _socks_server is not None or _http_server is not None else "hook-only",
         "activeSocksPort": _active_socks_port,
         "activeHttpPort": _active_http_port,
-        "matchMode": _match_mode,
         "targetConnectIp": connect_ip,
         "targetConnectPort": connect_port,
         "activeMonitoredConnections": len(_connections),
@@ -247,7 +235,8 @@ def test_speed_via_socks5(timeout_s: float = 5.0) -> float:
         raise TimeoutError(f"SOCKS5 speed test failed: {e}")
 
 
-def _socks5_connect(proxy_host: str, proxy_port: int, target_host: str, target_port: int, timeout_s: float) -> socket.socket:
+def _socks5_connect(proxy_host: str, proxy_port: int, target_host: str, target_port: int,
+                    timeout_s: float) -> socket.socket:
     sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout_s)
     sock.settimeout(timeout_s)
     try:

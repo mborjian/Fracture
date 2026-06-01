@@ -92,6 +92,28 @@ export function DashboardPage() {
   }, [data, setStatus]);
 
   useEffect(() => {
+    if (!status || status.state !== "running" || !status.activeProfileId) {
+      return;
+    }
+
+    let cancelled = false;
+    void api
+      .refreshEgress()
+      .then((next) => {
+        if (!cancelled) {
+          setStatus(next);
+        }
+      })
+      .catch(() => {
+        // Keep the current dashboard state if the egress refresh probe fails.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [setStatus, status?.activeProfileId, status?.state]);
+
+  useEffect(() => {
     const state = status?.state ?? "stopped";
     if (pendingAction === "connecting" && (state === "running" || state === "error" || state === "stopped")) {
       setPendingAction("idle");

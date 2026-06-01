@@ -22,6 +22,7 @@ type MetricOverrides = Record<string, number | null | undefined>;
 type ProfileMetricEvent = CustomEvent<{
   type: "ping" | "speed";
   profileId: string;
+  ok?: boolean;
   latencyMs?: number | null;
   speedMBps?: number | null;
 }>;
@@ -84,7 +85,7 @@ export function ProfilesPage() {
           next.delete(detail.profileId);
           return next;
         });
-        setPingOverrides((prev) => ({ ...prev, [detail.profileId]: detail.latencyMs }));
+        setPingOverrides((prev) => ({ ...prev, [detail.profileId]: detail.ok ? detail.latencyMs : null }));
       }
       if (detail.type === "speed") {
         setTestingSpeedIds((prev) => {
@@ -92,7 +93,7 @@ export function ProfilesPage() {
           next.delete(detail.profileId);
           return next;
         });
-        setSpeedOverrides((prev) => ({ ...prev, [detail.profileId]: detail.speedMBps }));
+        setSpeedOverrides((prev) => ({ ...prev, [detail.profileId]: detail.ok ? detail.speedMBps : null }));
       }
     };
 
@@ -373,7 +374,7 @@ export function ProfilesPage() {
         setTestingSpeedIds(new Set([profile.id]));
         setSpeedOverrides((prev) => ({ ...prev, [profile.id]: null }));
         const result = await api.speedProfile(profile.id, probeMode === "quick" ? 2500 : 7000, probeMode);
-        setSpeedOverrides((prev) => ({ ...prev, [profile.id]: result.speedMBps ?? 0 }));
+        setSpeedOverrides((prev) => ({ ...prev, [profile.id]: result.ok ? result.speedMBps : null }));
         toast.success(result.ok ? `${probeMode === "quick" ? "Quick" : "Full"} speed: ${result.speedMBps} MB/s` : `Speed test failed: ${result.error ?? "unknown error"}`);
       } else if (action === "export") {
         const link = profile.link?.trim() ? profile.link : (await api.exportProfile(profile.id)).link;
