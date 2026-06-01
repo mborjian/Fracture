@@ -38,9 +38,9 @@ class RoutingPayload(BaseModel):
     fakeIpCidr: str = Field(default="198.18.0.0/15")
     bypassDomains: str = Field(default="*.lan,*.local,*.msftconnecttest.com")
     routingRules: str = Field(default="geoip:private -> direct\ngeosite:ads -> block")
-    tunMode: bool = False
+    tunMode: bool = True
     tunReason: str = Field(default="TUN mode uses sing-box and may require Administrator privileges on Windows.")
-    outboundMode: str = Field(default="proxy")
+    outboundMode: str = Field(default="tun")
 
 
 class CoreSettingsPayload(BaseModel):

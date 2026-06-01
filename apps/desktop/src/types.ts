@@ -26,6 +26,8 @@ export interface CoreStatus {
   listenHost?: string;
   httpPort: number;
   socksPort: number;
+  tunMode: boolean;
+  networkMode: "proxy" | "tun";
   lastError: string | null;
 }
 

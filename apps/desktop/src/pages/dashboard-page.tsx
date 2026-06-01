@@ -114,6 +114,7 @@ export function DashboardPage() {
   const egressMeta = `${egressIp}`;
   const localIp = status?.localDeviceIp ?? "--";
   const isLanSharing = status?.proxyScope === "lan";
+  const isTunMode = status?.tunMode === true || status?.networkMode === "tun";
   const countryCode = (status?.egressCountry ?? "--").toUpperCase();
   const proxyHost = isLanSharing ? localIp : "127.0.0.1";
   const socksAddress = `${proxyHost}:${status?.socksPort ?? 2081}`;
@@ -237,9 +238,10 @@ export function DashboardPage() {
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex gap-4">
             <Card className="rounded-xl border border-border bg-panelAlt p-4">
-              <div className="flex items-center justify-start gap-3">
-                <div className="text-xs text-textMuted">LAN Sharing</div>
-                <Badge label={status?.proxyScope === "lan" ? "On" : "Local"} tone={status?.proxyScope === "lan" ? "success" : "default"} />
+              <div className="flex flex-wrap items-center justify-start gap-3">
+                <div className="text-xs text-textMuted">Network</div>
+                <Badge label={isTunMode ? "Full Tunnel" : "Proxy Only"} tone={isTunMode ? "success" : "warning"} />
+                <Badge label={status?.proxyScope === "lan" ? "LAN" : "Local"} tone={status?.proxyScope === "lan" ? "success" : "default"} />
               </div>
               <div className="mt-3 flex items-baseline gap-2">
                 <span className="text-lg font-semibold tracking-[0.16em] text-text">{isLanSharing ? localIp : "127.0.0.1"}</span>
@@ -284,7 +286,16 @@ export function DashboardPage() {
                 </div>
               </div>
 
-              {status?.lastError ? <div className="mt-auto pt-2 text-xs text-danger">{status.lastError}</div> : null}
+              {status?.lastError || (isConnected && !isTunMode) ? (
+                <div className="mt-auto space-y-1 pt-2 text-xs">
+                  {status?.lastError ? <div className="text-danger">{status.lastError}</div> : null}
+                  {isConnected && !isTunMode ? (
+                    <div className="text-warning">
+                      Full system tunnel is off. Only proxy-aware apps will use this connection.
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </Card>
           </div>
         </motion.div>

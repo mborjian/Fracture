@@ -64,6 +64,8 @@ class RuntimeStatus:
     listen_host: str = "127.0.0.1"
     http_port: int = 2080
     socks_port: int = 2081
+    tun_mode: bool = False
+    network_mode: str = "proxy"
     last_error: str | None = None
 
     def as_dict(self) -> dict:
@@ -90,6 +92,8 @@ class RuntimeStatus:
             "listenHost": self.listen_host,
             "httpPort": self.http_port,
             "socksPort": self.socks_port,
+            "tunMode": self.tun_mode,
+            "networkMode": self.network_mode,
             "lastError": self.last_error,
         }
 
@@ -314,10 +318,19 @@ class CoreRuntimeService:
         socks_port = int(core_settings.get("socksPort", 2081))
         listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
         self._status.listen_host = listen_host
+        self._status.tun_mode = mode == "tun"
+        self._status.network_mode = mode
         await self._emit_log_locked(
             "debug",
             f"runtime mode={transport_mode} profile={profile_id} network={mode} listen={listen_host}:{http_port}/{socks_port}",
         )
+        if mode == "tun":
+            await self._emit_log_locked("info", "network mode=tun full system tunnel enabled")
+        else:
+            await self._emit_log_locked(
+                "warning",
+                "network mode=proxy only proxy-aware apps will use Fracture",
+            )
 
         instance = await asyncio.to_thread(
             start_profile,
@@ -574,10 +587,13 @@ class CoreRuntimeService:
 
     async def _refresh_runtime_metadata_locked(self) -> None:
         core_settings = await fetch_core_settings()
+        routing = await fetch_routing_config()
         self._status.proxy_scope = str(core_settings.get("proxyScope", "local")).lower()
         self._status.listen_host = "0.0.0.0" if self._status.proxy_scope == "lan" else "127.0.0.1"
         self._status.http_port = int(core_settings.get("proxyPort", 2080))
         self._status.socks_port = int(core_settings.get("socksPort", 2081))
+        self._status.tun_mode = bool(routing.get("tunMode", False))
+        self._status.network_mode = "tun" if self._status.tun_mode else "proxy"
 
         self._status.local_device_ip = await asyncio.to_thread(self._resolve_local_device_ip)
 

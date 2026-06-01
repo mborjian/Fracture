@@ -61,6 +61,18 @@ def first_csv(value: str | None) -> str:
     return values[0] if values else ""
 
 
+def first_host(value: Any) -> str:
+    if isinstance(value, list):
+        return str(value[0]).strip() if value else ""
+    return first_csv(str(value))
+
+
+def host_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return split_csv(str(value))
+
+
 def normalize_transport_network(value: str | None) -> str:
     network = (value or "").strip().lower()
     return "httpupgrade" if network == "xhttp" else network
@@ -622,7 +634,7 @@ def make_transport_block(profile: Profile) -> dict[str, Any] | None:
         return transport
     if network == "httpupgrade":
         transport = {"type": "httpupgrade"}
-        normalized_host = first_csv(str(host))
+        normalized_host = first_host(host)
         if normalized_host:
             transport["host"] = normalized_host
         if path:
@@ -630,7 +642,7 @@ def make_transport_block(profile: Profile) -> dict[str, Any] | None:
         return transport
     if network == "http":
         transport = {"type": "http"}
-        normalized_hosts = split_csv(str(host))
+        normalized_hosts = host_list(host)
         if normalized_hosts:
             transport["host"] = normalized_hosts
         if path:
@@ -789,7 +801,7 @@ def _route_rules_from_routing(routing: dict[str, Any]) -> list[dict[str, Any]]:
     suffixes = [item.replace("*.", "") for item in bypass_domains if item.startswith("*.")]
     exact = [item for item in bypass_domains if item and not item.startswith("*.")]
     if suffixes or exact:
-        rule: dict[str, Any] = {"outbound": "direct"}
+        rule: dict[str, Any] = {"action": "route", "outbound": "direct"}
         if suffixes:
             rule["domain_suffix"] = suffixes
         if exact:
@@ -802,10 +814,13 @@ def _route_rules_from_routing(routing: dict[str, Any]) -> list[dict[str, Any]]:
         left, _, right = line.partition("->")
         source = left.strip().lower()
         target = right.strip().lower()
-        outbound = "direct" if target == "direct" else "block" if target == "block" else "proxy"
         if source.startswith("geoip:"):
             if source == "geoip:private":
-                rules.append({"ip_is_private": True, "outbound": outbound})
+                if target == "block":
+                    rules.append({"ip_is_private": True, "action": "reject"})
+                else:
+                    outbound = "direct" if target == "direct" else "proxy"
+                    rules.append({"ip_is_private": True, "action": "route", "outbound": outbound})
     return rules
 
 
@@ -848,7 +863,6 @@ def build_config(
                 "auto_route": True,
                 "strict_route": False,
                 "stack": "system",
-                "sniff": True,
             }
         )
         inbounds.append(
@@ -870,6 +884,10 @@ def build_config(
     else:
         raise ValueError(f"Unsupported mode: {mode}")
 
+    route_rules = _route_rules_from_routing(routing)
+    if mode == "tun":
+        route_rules.insert(0, {"inbound": "tun-in", "action": "sniff"})
+
     config = {
         "log": {"level": "warn"},
         "dns": {
@@ -879,14 +897,13 @@ def build_config(
         "outbounds": [
             make_outbound(profile, "proxy"),
             {"type": "direct", "tag": "direct"},
-            {"type": "block", "tag": "block"},
         ],
         "route": {
             "auto_detect_interface": True,
             "default_domain_resolver": {
                 "server": "dns-bootstrap"
             },
-            "rules": _route_rules_from_routing(routing),
+            "rules": route_rules,
             "final": "proxy",
         },
     }

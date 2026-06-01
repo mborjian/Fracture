@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
-from app.db.database import fetch_core_settings
+from app.db.database import fetch_core_settings, fetch_routing_config
 from app.services.profiles import list_profiles
 from app.services.runtime import CoreRuntimeService
 from app.services.transport import manager as transport_manager
@@ -88,11 +88,16 @@ async def core_self_check(request: Request) -> dict:
     runtime_service = _runtime_service(request)
     status = await runtime_service.get_status()
     runtime_mode = status.get("runtime")
+    routing = await fetch_routing_config()
+    tun_mode = bool(routing.get("tunMode", False))
+    network_mode = "tun" if tun_mode else "proxy"
     injector = transport_manager.get_injector_diagnostics()
     issues: list[str] = []
 
-    if runtime_mode != "tcp-inject":
-        issues.append("runtime mode is not tcp-inject")
+    if status.get("state") != "running" or not status.get("ready", False):
+        issues.append("runtime is not running")
+    if not tun_mode:
+        issues.append("full system tunnel is disabled; only proxy-aware apps will use Fracture")
     if runtime_mode == "tcp-inject":
         if not injector.get("running"):
             issues.append("injector is not running")
@@ -115,11 +120,18 @@ async def core_self_check(request: Request) -> dict:
             "state": status.get("state"),
             "ready": status.get("ready"),
             "runtime": runtime_mode,
+            "networkMode": network_mode,
+            "tunMode": tun_mode,
             "activeProfileId": status.get("activeProfileId"),
             "listenHost": status.get("listenHost"),
             "httpPort": status.get("httpPort"),
             "socksPort": status.get("socksPort"),
             "lastError": status.get("lastError"),
+        },
+        "routing": {
+            "tunMode": tun_mode,
+            "outboundMode": routing.get("outboundMode"),
+            "bypassDomains": routing.get("bypassDomains"),
         },
         "injector": injector,
         "issues": issues,

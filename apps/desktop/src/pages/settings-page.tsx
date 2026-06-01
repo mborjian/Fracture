@@ -8,10 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Switch } from "@/components/ui/switch"
-import { useCloudflareConfigQuery, useCoreSettingsQuery, useUiSettingsQuery } from "@/hooks/useBackendQuery";
+import { useCloudflareConfigQuery, useCoreSettingsQuery, useRoutingConfigQuery, useUiSettingsQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
-import type { CloudflareConfig, CloudflareListener, CoreSettings, UiSettings } from "@/types";
+import type { CloudflareConfig, CloudflareListener, CoreSettings, RoutingConfig, UiSettings } from "@/types";
 
 const DEFAULT_CORE: CoreSettings = {
   proxyScope: "local",
@@ -27,6 +27,17 @@ const DEFAULT_UI: UiSettings = {
   runOnStartup: false,
   closeToTray: true,
   showDevelopmentLogs: false
+};
+
+const DEFAULT_ROUTING: RoutingConfig = {
+  dnsServers: "1.1.1.1,8.8.8.8",
+  dohUrl: "https://dns.google/dns-query",
+  fakeIpCidr: "198.18.0.0/15",
+  bypassDomains: "*.lan,*.local,*.msftconnecttest.com",
+  routingRules: "geoip:private -> direct\ngeosite:ads -> block",
+  tunMode: true,
+  tunReason: "TUN mode uses sing-box and may require Administrator privileges on Windows.",
+  outboundMode: "tun"
 };
 
 const DEFAULT_LISTENER: CloudflareListener = {
@@ -108,14 +119,17 @@ export function SettingsPage() {
   const queryClient = useQueryClient();
   const { data: cloudflareData, refetch: refetchCloudflare } = useCloudflareConfigQuery();
   const { data: coreData, refetch: refetchCore } = useCoreSettingsQuery();
+  const { data: routingData, refetch: refetchRouting } = useRoutingConfigQuery();
   const { data: uiData, refetch: refetchUi } = useUiSettingsQuery();
 
   const [cloudflareDraft, setCloudflareDraft] = useState<CloudflareConfig>(DEFAULT_CLOUDFLARE);
   const [listenerText, setListenerText] = useState(JSON.stringify(stripEditableFields(DEFAULT_LISTENER), null, 2));
   const [listenerOpen, setListenerOpen] = useState(false);
   const [coreDraft, setCoreDraft] = useState<CoreSettings>(DEFAULT_CORE);
+  const [routingDraft, setRoutingDraft] = useState<RoutingConfig>(DEFAULT_ROUTING);
   const [uiDraft, setUiDraft] = useState<UiSettings>(DEFAULT_UI);
   const [savingProxy, setSavingProxy] = useState(false);
+  const [savingRouting, setSavingRouting] = useState(false);
   const [savingJson, setSavingJson] = useState(false);
   const listenerMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -137,6 +151,16 @@ export function SettingsPage() {
       });
     }
   }, [coreData]);
+
+  useEffect(() => {
+    if (routingData) {
+      setRoutingDraft({
+        ...DEFAULT_ROUTING,
+        ...routingData,
+        outboundMode: routingData.tunMode ? "tun" : "proxy"
+      });
+    }
+  }, [routingData]);
 
   useEffect(() => {
     if (uiData) {
@@ -279,6 +303,29 @@ export function SettingsPage() {
     }
   };
 
+  const saveRoutingSettings = async (nextRouting: RoutingConfig) => {
+    setRoutingDraft(nextRouting);
+    if (savingRouting) {
+      return;
+    }
+    setSavingRouting(true);
+    try {
+      const saved = await api.saveRoutingConfig(nextRouting);
+      const normalized = {
+        ...DEFAULT_ROUTING,
+        ...saved,
+        outboundMode: saved.tunMode ? "tun" : "proxy"
+      };
+      setRoutingDraft(normalized);
+      queryClient.setQueryData(["routing-config"], normalized);
+      await refetchRouting();
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setSavingRouting(false);
+    }
+  };
+
   const changeTheme = async (theme: UiSettings["theme"]) => {
     const next = { ...uiDraft, theme };
     setUiDraft(next);
@@ -314,7 +361,7 @@ export function SettingsPage() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4">
-        <Card className="flex h-[280px] flex-col rounded-xl">
+        <Card className="flex h-[340px] flex-col rounded-xl">
           <h3 className="mb-3 text-sm font-semibold">Cloudflare Listener JSON</h3>
           <div className="mb-3 flex items-center gap-2">
             <div ref={listenerMenuRef} className="relative min-w-0 flex-1">
@@ -392,8 +439,8 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        <Card className="flex h-[280px] flex-col rounded-xl">
-          <h3 className="mb-4 text-sm font-semibold">Proxy Port</h3>
+        <Card className="flex h-[340px] flex-col rounded-xl">
+          <h3 className="mb-4 text-sm font-semibold">Network Mode</h3>
           <ToggleGroup type="single" value={coreDraft.proxyScope} className="w-[180px] mx-auto mb-5"
             onValueChange={(value) => {
               if (value) {
@@ -407,6 +454,27 @@ export function SettingsPage() {
             <ToggleGroupItem value="local" className="gap-2"><Laptop className="h-4 w-4" /> Local</ToggleGroupItem>
             <ToggleGroupItem value="lan" className="gap-2"><Network className="h-4 w-4" /> LAN</ToggleGroupItem>
           </ToggleGroup>
+
+          <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+            <div>
+              <div className="font-medium text-text">Full System Tunnel</div>
+              <div className="text-xs text-textMuted">
+                Routes Windows traffic through sing-box TUN instead of relying only on app proxy support.
+              </div>
+            </div>
+
+            <Switch
+              checked={routingDraft.tunMode}
+              disabled={savingRouting}
+              onCheckedChange={(checked) =>
+                void saveRoutingSettings({
+                  ...routingDraft,
+                  tunMode: checked,
+                  outboundMode: checked ? "tun" : "proxy"
+                })
+              }
+            />
+          </label>
 
           <label className="space-y-1 text-sm mb-4">
               <div className="text-xs text-textMuted">HTTP</div>
