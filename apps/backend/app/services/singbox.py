@@ -20,6 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import settings
+from app.services.curl_socks import probe_latency_via_socks5
 
 DEFAULT_DELAY_URL = "https://www.gstatic.com/generate_204"
 DEFAULT_SPEED_URL = "https://speed.hetzner.de/100MB.bin"
@@ -1211,7 +1212,7 @@ def test_delay(
         config_name="delay.json",
     )
     if mode == "quick":
-        return _socks5_probe("127.0.0.1", instance.socks_port, "www.gstatic.com", 443, timeout=3.0)
+        return float(probe_latency_via_socks5("127.0.0.1", instance.socks_port, timeout_s=15.0))
 
     opener = make_proxy_opener(instance.http_port)
     started = time.perf_counter()

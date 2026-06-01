@@ -24,6 +24,7 @@ from app.db.database import (
     fetch_profile_by_id,
     fetch_routing_config,
 )
+from app.services.curl_socks import curl_available, fetch_egress_via_socks5
 from app.services.singbox import (
     DEFAULT_TUN_NAME,
     Profile,
@@ -35,7 +36,7 @@ from app.services.singbox import (
     stop_instance,
 )
 from app.services.transport import manager as transport_manager
-from app.services.transport.traffic import _traffic, fetch_egress_via_socks5
+from app.services.transport.traffic import _traffic
 from app.services.system_proxy import enable_system_proxy, get_system_proxy_state, restore_system_proxy_state
 
 CoreRuntime = Literal["sing-box", "tcp-inject"]
@@ -248,44 +249,37 @@ class CoreRuntimeService:
         return "sing-box.exe" if settings.root_dir.drive else "sing-box"
 
     @staticmethod
-    def _apply_cloudflare_listener(profile: Profile, listener: dict[str, object] | None) -> Profile:
+    def _listener_bridge_target(listener: dict[str, object] | None) -> tuple[str, int] | None:
         if listener is None:
+            return None
+        listen_host = str(listener.get("LISTEN_HOST", "127.0.0.1")).strip() or "127.0.0.1"
+        listen_port = int(listener.get("LISTEN_PORT", 40443))
+        return listen_host, listen_port
+
+    @classmethod
+    def _rewrite_profile_for_bridge(cls, profile: Profile, listener: dict[str, object] | None) -> Profile:
+        bridge_target = cls._listener_bridge_target(listener)
+        if bridge_target is None:
             return profile
-
-        connect_ip = str(listener.get("CONNECT_IP", "")).strip()
-        connect_port_raw = listener.get("CONNECT_PORT", profile.port)
-        fake_sni = str(listener.get("FAKE_SNI", "")).strip()
-        if not connect_ip:
-            return profile
-
-        needs_listener_resolution = profile.server in {"127.0.0.1", "0.0.0.0", "localhost"}
-        if not needs_listener_resolution:
-            return profile
-
-        extras = dict(profile.extras)
-        if fake_sni:
-            extras["host"] = fake_sni
-            if not profile.sni:
-                profile = Profile(**{**profile.__dict__, "sni": fake_sni})
-
+        listen_host, listen_port = bridge_target
         return Profile(
             scheme=profile.scheme,
             name=profile.name,
-            server=connect_ip,
-            port=int(connect_port_raw),
+            server=listen_host,
+            port=listen_port,
             uuid_or_password=profile.uuid_or_password,
             username=profile.username,
             tls=profile.tls,
             network=profile.network,
-            sni=profile.sni or fake_sni,
-            alpn=profile.alpn,
+            sni=profile.sni,
+            alpn=list(profile.alpn),
             allow_insecure=profile.allow_insecure,
             fingerprint=profile.fingerprint,
             reality_public_key=profile.reality_public_key,
             reality_short_id=profile.reality_short_id,
             reality_spider_x=profile.reality_spider_x,
             remark=profile.remark,
-            extras=extras,
+            extras=dict(profile.extras),
         )
 
     async def _spawn_runtime_locked(self) -> None:
@@ -297,9 +291,9 @@ class CoreRuntimeService:
         if record is None:
             raise RuntimeError("Selected profile does not exist")
 
-        profile = record_to_profile(record)
         cloudflare_listener = await fetch_selected_cloudflare_listener()
-        profile = self._apply_cloudflare_listener(profile, cloudflare_listener)
+        profile = record_to_profile(record)
+        runtime_profile = self._rewrite_profile_for_bridge(profile, cloudflare_listener)
         routing = await fetch_routing_config()
         core_settings = await fetch_core_settings()
         transport_mode = core_settings.get("transportMode", "singbox")
@@ -334,7 +328,7 @@ class CoreRuntimeService:
 
         instance = await asyncio.to_thread(
             start_profile,
-            profile,
+            runtime_profile,
             binary_path,
             mode,
             socks_port,
@@ -375,10 +369,10 @@ class CoreRuntimeService:
             connect_ip,
             connect_port,
             fake_sni.encode(),
-            None,
-            None,
+            socks_port,
+            http_port,
             listen_host,
-            False,
+            True,
         )
         target_label = f"{connect_ip}:{connect_port}"
         await self._emit_log_locked(
@@ -539,24 +533,27 @@ class CoreRuntimeService:
         if self._status.state != "running":
             return
 
-        # For injector-only mode, use SOCKS5 proxy to fetch egress info.
-        # In hybrid mode (tcp-inject + sing-box), use sing-box path below.
-        if self._status.runtime == "tcp-inject" and self._instance is None:
+        socks_port = None
+        if self._status.runtime == "tcp-inject":
             socks_port = transport_manager.get_active_socks_port()
-            if socks_port:
-                try:
-                    ip, country = await fetch_egress_via_socks5(socks_port)
-                except Exception as exc:  # noqa: BLE001
-                    await self._emit_log_locked(
-                        "warning",
-                        f"egress lookup via socks5 failed: {exc}",
-                        trace=traceback.format_exc(),
-                    )
-                else:
-                    if ip:
-                        self._status.egress_ip = ip
-                    if country:
-                        self._status.egress_country = country
+        elif self._instance is not None:
+            socks_port = self._instance.socks_port
+
+        if socks_port and curl_available():
+            try:
+                payload = await asyncio.to_thread(fetch_egress_via_socks5, "127.0.0.1", socks_port)
+            except Exception as exc:  # noqa: BLE001
+                await self._emit_log_locked(
+                    "warning",
+                    f"egress lookup via socks5 failed: {exc}",
+                    trace=traceback.format_exc(),
+                )
+            else:
+                self._status.egress_ip = payload.ip or self._status.egress_ip
+                self._status.egress_country = payload.country or self._status.egress_country
+                return
+
+        if self._status.runtime == "tcp-inject" and self._instance is None:
             return
 
         # For sing-box mode, use the existing HTTP proxy method
