@@ -98,10 +98,13 @@ async def core_self_check(request: Request) -> dict:
             issues.append("injector is not running")
         if not injector.get("injectorThreadAlive"):
             issues.append("injector thread is not alive")
+        match_mode = str(injector.get("matchMode", "fixed_ip"))
+        if match_mode not in {"fixed_ip", "any_443"}:
+            issues.append(f"injector matchMode is invalid: {match_mode}")
         proxy_mode = str(injector.get("proxyMode", ""))
         if proxy_mode == "local-proxy" and not injector.get("proxyThreadAlive"):
             issues.append("proxy thread is not alive")
-        if not injector.get("targetConnectIp"):
+        if match_mode == "fixed_ip" and not injector.get("targetConnectIp"):
             issues.append("injector target CONNECT_IP is empty")
         if not injector.get("targetConnectPort"):
             issues.append("injector target CONNECT_PORT is empty")

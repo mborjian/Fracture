@@ -5,7 +5,7 @@ import threading
 class MonitorConnection:
     """Tracks TCP handshake state for a single connection."""
 
-    def __init__(self, sock: socket.socket, src_ip: str, dst_ip: str,
+    def __init__(self, sock: socket.socket | None, src_ip: str, dst_ip: str,
                  src_port: int, dst_port: int):
         self.monitor = True
         self.syn_seq = -1  # outbound SYN seq

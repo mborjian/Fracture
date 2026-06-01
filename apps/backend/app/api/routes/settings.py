@@ -24,6 +24,7 @@ class CloudflareListenerPayload(BaseModel):
     CONNECT_IP: str = Field(default="")
     CONNECT_PORT: int = Field(default=443, ge=1, le=65535)
     FAKE_SNI: str = Field(default="")
+    matchMode: str = Field(default="fixed_ip")
 
 
 class CloudflareConfigPayload(BaseModel):

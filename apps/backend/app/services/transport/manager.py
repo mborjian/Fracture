@@ -24,6 +24,7 @@ _active_socks_port: Optional[int] = None
 _active_http_port: Optional[int] = None
 _target_connect_ip: Optional[str] = None
 _target_connect_port: Optional[int] = None
+_match_mode: str = "fixed_ip"
 
 
 def start_injector(
@@ -35,25 +36,45 @@ def start_injector(
     http_port: Optional[int],
     listen_host: str = "127.0.0.1",
     start_local_proxies: bool = True,
+    match_mode: str = "fixed_ip",
 ):
     """Launch the WinDivert injector and local SOCKS/HTTP proxies."""
-    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
+    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _match_mode
 
     if _running:
         stop_injector()
 
     _connections.clear()
-    w_filter = (
-        f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip}) or "
-        f"(ip.SrcAddr == {connect_ip} and ip.DstAddr == {interface_ipv4}))"
+    normalized_match_mode = match_mode if match_mode in {"fixed_ip", "any_443"} else "fixed_ip"
+    connect_port = int(connect_port)
+    if normalized_match_mode == "fixed_ip" and not str(connect_ip).strip():
+        raise ValueError("connect_ip is required when match_mode=fixed_ip")
+
+    if normalized_match_mode == "fixed_ip":
+        w_filter = (
+            f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip} and tcp.DstPort == {connect_port}) or "
+            f"(ip.SrcAddr == {connect_ip} and ip.DstAddr == {interface_ipv4} and tcp.SrcPort == {connect_port}))"
+        )
+    else:
+        w_filter = (
+            f"tcp and ((ip.SrcAddr == {interface_ipv4} and tcp.DstPort == {connect_port}) or "
+            f"(ip.DstAddr == {interface_ipv4} and tcp.SrcPort == {connect_port}))"
+        )
+
+    injector = TcpInjector(
+        w_filter,
+        _connections,
+        fake_sni=fake_sni,
+        auto_monitor=not start_local_proxies,
+        match_port=connect_port,
     )
-    injector = TcpInjector(w_filter, _connections)
     _injector = injector
     _running = True
     _active_socks_port = socks_port
     _active_http_port = http_port
-    _target_connect_ip = connect_ip
+    _target_connect_ip = connect_ip if normalized_match_mode == "fixed_ip" else None
     _target_connect_port = connect_port
+    _match_mode = normalized_match_mode
 
     # Start WinDivert capture thread
     def _run():
@@ -103,7 +124,7 @@ def start_injector(
 
 def stop_injector():
     """Stop WinDivert injector and SOCKS5 proxy."""
-    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
+    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _match_mode
     _running = False
 
     if _injector is not None:
@@ -145,6 +166,7 @@ def stop_injector():
     _active_http_port = None
     _target_connect_ip = None
     _target_connect_port = None
+    _match_mode = "fixed_ip"
 
 
 def get_active_socks_port() -> Optional[int]:
@@ -158,7 +180,7 @@ def get_active_http_port() -> Optional[int]:
 
 
 def get_injector_target() -> tuple[Optional[str], Optional[int]]:
-    """Return the fixed remote target used for tcp-inject mode."""
+    """Return injector target tuple used for tcp-inject mode."""
     return _target_connect_ip, _target_connect_port
 
 
@@ -174,6 +196,7 @@ def get_injector_diagnostics() -> dict:
         "proxyMode": "local-proxy" if _socks_server is not None or _http_server is not None else "hook-only",
         "activeSocksPort": _active_socks_port,
         "activeHttpPort": _active_http_port,
+        "matchMode": _match_mode,
         "targetConnectIp": connect_ip,
         "targetConnectPort": connect_port,
         "activeMonitoredConnections": len(_connections),
