@@ -24,6 +24,7 @@ _active_socks_port: Optional[int] = None
 _active_http_port: Optional[int] = None
 _target_connect_ip: Optional[str] = None
 _target_connect_port: Optional[int] = None
+_target_fake_sni: bytes = b""
 
 
 def start_injector(
@@ -37,7 +38,7 @@ def start_injector(
         start_local_proxies: bool = True,
 ):
     """Launch the WinDivert injector and local SOCKS/HTTP proxies."""
-    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
+    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _target_fake_sni
 
     if _running:
         stop_injector()
@@ -46,6 +47,8 @@ def start_injector(
     connect_port = int(connect_port)
     if not str(connect_ip).strip():
         raise ValueError("connect_ip is required")
+    if not fake_sni:
+        raise ValueError("fake_sni is required")
 
     w_filter = (
         f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip} and tcp.DstPort == {connect_port}) or "
@@ -65,6 +68,7 @@ def start_injector(
     _active_http_port = http_port
     _target_connect_ip = connect_ip
     _target_connect_port = connect_port
+    _target_fake_sni = fake_sni
 
     # Start WinDivert capture thread
     def _run():
@@ -114,7 +118,7 @@ def start_injector(
 
 def stop_injector():
     """Stop WinDivert injector and SOCKS5 proxy."""
-    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port
+    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _target_fake_sni
     _running = False
 
     if _injector is not None:
@@ -156,6 +160,7 @@ def stop_injector():
     _active_http_port = None
     _target_connect_ip = None
     _target_connect_port = None
+    _target_fake_sni = b""
 
 
 def get_active_socks_port() -> Optional[int]:
@@ -187,9 +192,74 @@ def get_injector_diagnostics() -> dict:
         "activeHttpPort": _active_http_port,
         "targetConnectIp": connect_ip,
         "targetConnectPort": connect_port,
+        "fakeSniConfigured": bool(_target_fake_sni),
         "activeMonitoredConnections": len(_connections),
         "injectorStats": _injector.get_stats() if _injector is not None else {},
     }
+
+
+async def handle_bridge_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> None:
+    """Accept one local bridge connection and relay it through the injected upstream socket."""
+    loop = asyncio.get_running_loop()
+    interface_ipv4 = _resolve_local_device_ip() or "0.0.0.0"
+    peer_sock = writer.get_extra_info("socket")
+    success, message, outgoing_sock = await establish_connection(
+        loop,
+        interface_ipv4,
+        _target_connect_ip,
+        _target_connect_port,
+        _target_fake_sni,
+        peer_sock,
+    )
+    if not success or outgoing_sock is None:
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+        raise RuntimeError(message)
+
+    remote_reader, remote_writer = await asyncio.open_connection(sock=outgoing_sock)
+    await asyncio.gather(
+        _relay_with_count(reader, remote_writer, is_upload=True),
+        _relay_with_count(remote_reader, writer, is_upload=False),
+        return_exceptions=True,
+    )
+
+
+async def _relay_with_count(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, is_upload: bool) -> None:
+    from .traffic import _traffic
+
+    try:
+        while True:
+            data = await reader.read(65535)
+            if not data:
+                break
+            writer.write(data)
+            await writer.drain()
+            if is_upload:
+                _traffic.add_upload(len(data))
+            else:
+                _traffic.add_download(len(data))
+    finally:
+        writer.close()
+        with contextlib.suppress(Exception):
+            await writer.wait_closed()
+
+
+def _resolve_local_device_ip() -> str | None:
+    candidates: list[str] = []
+    with contextlib.suppress(Exception):
+        hostname = socket.gethostname()
+        for _, _, _, _, sockaddr in socket.getaddrinfo(hostname, None, socket.AF_INET):
+            ip = str(sockaddr[0])
+            if ip and not ip.startswith("127."):
+                candidates.append(ip)
+    with contextlib.suppress(Exception):
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+            sock.connect(("8.8.8.8", 80))
+            ip = str(sock.getsockname()[0])
+            if ip and not ip.startswith("127."):
+                candidates.append(ip)
+    return candidates[0] if candidates else None
 
 
 def test_delay_via_socks5(timeout_s: float = 3.0) -> float:

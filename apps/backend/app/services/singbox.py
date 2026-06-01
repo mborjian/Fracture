@@ -798,6 +798,10 @@ def _dns_servers_from_routing(routing: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _route_rules_from_routing(routing: dict[str, Any]) -> list[dict[str, Any]]:
     rules: list[dict[str, Any]] = []
+    connect_ip = str(routing.get("connectIpException", "")).strip()
+    if connect_ip:
+        rules.append({"ip_cidr": [f"{connect_ip}/32"], "action": "route", "outbound": "direct"})
+
     bypass_domains = split_csv(str(routing.get("bypassDomains", "")))
     suffixes = [item.replace("*.", "") for item in bypass_domains if item.startswith("*.")]
     exact = [item for item in bypass_domains if item and not item.startswith("*.")]
@@ -893,6 +897,7 @@ def build_config(
         "log": {"level": "warn"},
         "dns": {
             "servers": _dns_servers_from_routing(routing),
+            "strategy": "prefer_ipv4",
         },
         "inbounds": inbounds,
         "outbounds": [

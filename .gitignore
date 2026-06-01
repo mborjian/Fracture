@@ -83,3 +83,4 @@ sing-box/*
 # Logs
 logs/
 *.log
+/Cloak/

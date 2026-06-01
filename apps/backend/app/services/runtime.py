@@ -112,6 +112,7 @@ class CoreRuntimeService:
         self._last_sample_monotonic: float | None = None
         self._saved_system_proxy_state: dict | None = None
         self._clash_traffic_stream: urllib.request.addinfourl | None = None
+        self._bridge_server: asyncio.Server | None = None
 
     async def get_status(self) -> dict:
         async with self._lock:
@@ -163,6 +164,8 @@ class CoreRuntimeService:
                 await self._refresh_egress_info_locked()
                 await self._emit_log_locked("info", f"runtime={runtime} started")
             except Exception as exc:  # noqa: BLE001
+                await self._stop_bridge_locked()
+                transport_manager.stop_injector()
                 await self._cleanup_instance_locked()
                 await self._restore_system_proxy_locked()
                 self._status.state = "error"
@@ -254,7 +257,8 @@ class CoreRuntimeService:
             return None
         listen_host = str(listener.get("LISTEN_HOST", "127.0.0.1")).strip() or "127.0.0.1"
         listen_port = int(listener.get("LISTEN_PORT", 40443))
-        return listen_host, listen_port
+        connect_host = "127.0.0.1" if listen_host == "0.0.0.0" else listen_host
+        return connect_host, listen_port
 
     @classmethod
     def _rewrite_profile_for_bridge(cls, profile: Profile, listener: dict[str, object] | None) -> Profile:
@@ -293,7 +297,6 @@ class CoreRuntimeService:
 
         cloudflare_listener = await fetch_selected_cloudflare_listener()
         profile = record_to_profile(record)
-        runtime_profile = self._rewrite_profile_for_bridge(profile, cloudflare_listener)
         routing = await fetch_routing_config()
         core_settings = await fetch_core_settings()
         transport_mode = core_settings.get("transportMode", "singbox")
@@ -314,6 +317,13 @@ class CoreRuntimeService:
         self._status.listen_host = listen_host
         self._status.tun_mode = mode == "tun"
         self._status.network_mode = mode
+        runtime_profile = profile
+        if transport_mode == "tcp-inject":
+            await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
+            runtime_profile = self._rewrite_profile_for_bridge(profile, cloudflare_listener)
+            routing = dict(routing)
+            routing["connectIpException"] = str((cloudflare_listener or {}).get("CONNECT_IP", "")).strip()
+
         await self._emit_log_locked(
             "debug",
             f"runtime mode={transport_mode} profile={profile_id} network={mode} listen={listen_host}:{http_port}/{socks_port}",
@@ -344,40 +354,40 @@ class CoreRuntimeService:
 
         if transport_mode == "tcp-inject":
             await self._emit_log_locked("info", f"runtime mode=tcp-inject profile={profile_id}")
-            await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
 
     async def _spawn_tcp_inject_locked(self, profile: Profile, core_settings: dict, listener: dict | None) -> None:
+        if listener is None:
+            raise RuntimeError("TCP Inject mode requires a selected listener")
         connect_ip = str((listener or {}).get("CONNECT_IP", "")).strip()
         connect_port = int((listener or {}).get("CONNECT_PORT", profile.port))
         fake_sni = str((listener or {}).get("FAKE_SNI", "")).strip()
+        bridge_host = str(listener.get("LISTEN_HOST", "127.0.0.1")).strip() or "127.0.0.1"
+        bridge_port = int(listener.get("LISTEN_PORT", 40443))
         if not connect_ip:
             raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
         if not fake_sni:
             raise RuntimeError("TCP Inject mode requires FAKE_SNI in listener")
 
         interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
-        # Start the background injector as a transport hook while sing-box
-        # remains responsible for outbound protocol handling.
-        socks_port = int(core_settings.get("socksPort", 2081))
-        http_port = int(core_settings.get("proxyPort", 2080))
-        listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
-        self._status.listen_host = listen_host
-        self._status.http_port = http_port
-        self._status.socks_port = socks_port
         transport_manager.start_injector(
             interface_ipv4,
             connect_ip,
             connect_port,
             fake_sni.encode(),
-            socks_port,
-            http_port,
-            listen_host,
-            True,
+            None,
+            None,
+            bridge_host,
+            False,
+        )
+        self._bridge_server = await asyncio.start_server(
+            transport_manager.handle_bridge_client,
+            bridge_host,
+            bridge_port,
         )
         target_label = f"{connect_ip}:{connect_port}"
         await self._emit_log_locked(
             "debug",
-            f"tcp-inject interface={interface_ipv4} target={target_label} listen={listen_host}:{http_port}/{socks_port}",
+            f"tcp-inject interface={interface_ipv4} target={target_label} bridge={bridge_host}:{bridge_port}",
         )
         await self._emit_log_locked(
             "info",
@@ -405,6 +415,7 @@ class CoreRuntimeService:
         )
 
     async def _stop_runtime_locked(self) -> None:
+        await self._stop_bridge_locked()
         transport_manager.stop_injector()
 
         if self._sampler_task is not None:
@@ -415,6 +426,15 @@ class CoreRuntimeService:
 
         await self._cleanup_instance_locked()
         await self._restore_system_proxy_locked()
+
+    async def _stop_bridge_locked(self) -> None:
+        server = self._bridge_server
+        self._bridge_server = None
+        if server is None:
+            return
+        server.close()
+        with contextlib.suppress(Exception):
+            await server.wait_closed()
 
     async def _apply_system_proxy_locked(self) -> None:
         core_settings = await fetch_core_settings()

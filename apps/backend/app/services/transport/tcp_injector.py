@@ -2,7 +2,12 @@ import contextlib
 import os
 import threading
 import time
-from pydivert import WinDivert, Packet
+
+try:
+    from pydivert import WinDivert, Packet
+except Exception:  # noqa: BLE001
+    WinDivert = None  # type: ignore[assignment]
+    Packet = object  # type: ignore[assignment,misc]
 
 from .monitor_connection import MonitorConnection
 from .packet_templates import ClientHelloMaker
@@ -45,6 +50,8 @@ class TcpInjector:
         match_port: int = 443,
         max_auto_connections: int = 1024,
     ):
+        if WinDivert is None:
+            raise RuntimeError("pydivert/WinDivert is not available; install the driver and run as Administrator")
         self.w = WinDivert(w_filter)
         self.connections = connections
         self.fake_sni = fake_sni
