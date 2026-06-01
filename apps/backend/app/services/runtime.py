@@ -340,17 +340,13 @@ class CoreRuntimeService:
             await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
 
     async def _spawn_tcp_inject_locked(self, profile: Profile, core_settings: dict, listener: dict | None) -> None:
-        # Build real server details from listener (same as _apply_cloudflare_listener)
-        if listener and profile.server in {"127.0.0.1", "0.0.0.0", "localhost"}:
-            connect_ip = str(listener.get("CONNECT_IP", "")).strip()
-            connect_port = int(listener.get("CONNECT_PORT", profile.port))
-            fake_sni = str(listener.get("FAKE_SNI", "")).strip()
-            if not connect_ip:
-                raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
-        else:
-            connect_ip = profile.server
-            connect_port = profile.port
-            fake_sni = profile.sni or ""
+        connect_ip = str((listener or {}).get("CONNECT_IP", "")).strip()
+        connect_port = int((listener or {}).get("CONNECT_PORT", profile.port))
+        fake_sni = str((listener or {}).get("FAKE_SNI", "")).strip()
+        if not connect_ip:
+            raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
+        if not fake_sni:
+            raise RuntimeError("TCP Inject mode requires FAKE_SNI in listener")
 
         interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
         # Start the background injector as a transport hook while sing-box
@@ -477,8 +473,8 @@ class CoreRuntimeService:
                 if self._status.state != "running":
                     return
 
-                # ---- TCP inject mode branch ----
-                if self._status.runtime == "tcp-inject":
+                # ---- TCP inject branch without sing-box instance ----
+                if self._status.runtime == "tcp-inject" and self._instance is None:
                     now = time.monotonic()
                     elapsed = now - self._last_sample_monotonic if self._last_sample_monotonic is not None else 1.0
                     self._last_sample_monotonic = now
@@ -529,8 +525,9 @@ class CoreRuntimeService:
         if self._status.state != "running":
             return
 
-        # For TCP inject mode, use SOCKS5 proxy to fetch egress info
-        if self._status.runtime == "tcp-inject":
+        # For injector-only mode, use SOCKS5 proxy to fetch egress info.
+        # In hybrid mode (tcp-inject + sing-box), use sing-box path below.
+        if self._status.runtime == "tcp-inject" and self._instance is None:
             socks_port = transport_manager.get_active_socks_port()
             if socks_port:
                 try:

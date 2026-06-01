@@ -171,11 +171,13 @@ def get_injector_diagnostics() -> dict:
         "running": bool(_running),
         "injectorThreadAlive": injector_alive,
         "proxyThreadAlive": proxy_alive,
+        "proxyMode": "local-proxy" if _socks_server is not None or _http_server is not None else "hook-only",
         "activeSocksPort": _active_socks_port,
         "activeHttpPort": _active_http_port,
         "targetConnectIp": connect_ip,
         "targetConnectPort": connect_port,
         "activeMonitoredConnections": len(_connections),
+        "injectorStats": _injector.get_stats() if _injector is not None else {},
     }
 
 

@@ -24,6 +24,17 @@ class TcpInjector:
         self.w = WinDivert(w_filter)
         self.connections = connections
         self.running = True
+        self.stats = {
+            "packetsSeen": 0,
+            "packetsMatched": 0,
+            "outboundSynSeen": 0,
+            "inboundSynAckSeen": 0,
+            "handshakeAckSeen": 0,
+            "fakeSent": 0,
+            "fakeAckSeen": 0,
+            "unexpectedClose": 0,
+            "unmatchedPassThrough": 0,
+        }
 
     def stop(self):
         self.running = False
@@ -41,10 +52,12 @@ class TcpInjector:
             if conn.bypass_method == "wrong_seq":
                 packet.tcp.seq_num = (conn.syn_seq + 1 - len(packet.tcp.payload)) & 0xffffffff
                 conn.fake_sent = True
+                self.stats["fakeSent"] += 1
                 self.w.send(packet, True)
 
     def _on_unexpected(self, packet: Packet, conn: FakeInjectiveConnection, info: str):
         print(info, packet)
+        self.stats["unexpectedClose"] += 1
         conn.sock.close()
         if conn.peer_sock is not None:
             conn.peer_sock.close()
@@ -64,6 +77,7 @@ class TcpInjector:
             if packet.tcp.ack_num != ((conn.syn_seq + 1) & 0xffffffff):
                 return self._on_unexpected(packet, conn, "SYN‑ACK ack mismatch")
             conn.syn_ack_seq = packet.tcp.seq_num
+            self.stats["inboundSynAckSeen"] += 1
             self.w.send(packet, False)
             return
         # ACK after fake injection
@@ -76,6 +90,7 @@ class TcpInjector:
             conn.monitor = False
             conn.t2a_msg = "fake_data_ack_recv"
             conn.t2a_event.set()
+            self.stats["fakeAckSeen"] += 1
             return
         self._on_unexpected(packet, conn, "unexpected inbound")
 
@@ -90,6 +105,7 @@ class TcpInjector:
             if conn.syn_seq != -1 and conn.syn_seq != packet.tcp.seq_num:
                 return self._on_unexpected(packet, conn, "SYN seq mismatch")
             conn.syn_seq = packet.tcp.seq_num
+            self.stats["outboundSynSeen"] += 1
             self.w.send(packet, False)
             return
         # ACK (completes handshake)
@@ -101,11 +117,13 @@ class TcpInjector:
                 return self._on_unexpected(packet, conn, "handshake ACK ack mismatch")
             self.w.send(packet, False)
             conn.sch_fake_sent = True
+            self.stats["handshakeAckSeen"] += 1
             threading.Thread(target=self._fake_send_thread, args=(packet, conn), daemon=True).start()
             return
         self._on_unexpected(packet, conn, "unexpected outbound")
 
     def inject(self, packet: Packet):
+        self.stats["packetsSeen"] += 1
         if packet.is_inbound:
             cid = (packet.ip.dst_addr, packet.tcp.dst_port, packet.ip.src_addr, packet.tcp.src_port)
         else:
@@ -113,8 +131,10 @@ class TcpInjector:
 
         conn = self.connections.get(cid)
         if not conn:
+            self.stats["unmatchedPassThrough"] += 1
             self.w.send(packet, False)
             return
+        self.stats["packetsMatched"] += 1
         with conn.thread_lock:
             if not conn.monitor:
                 self.w.send(packet, False)
@@ -129,3 +149,6 @@ class TcpInjector:
             while self.running:
                 pkt = self.w.recv()
                 self.inject(pkt)
+
+    def get_stats(self) -> dict:
+        return dict(self.stats)

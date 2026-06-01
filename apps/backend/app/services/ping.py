@@ -302,7 +302,8 @@ class ProfilePingService:
     def _delay_probe_sync(self, profile_record: dict, routing: dict, probe_mode: ProbeMode) -> dict:
         # Check current runtime mode
         mode = self._runtime_service.get_runtime_mode()
-        if mode == "tcp-inject":
+        runtime_instance = self._runtime_service._instance
+        if mode == "tcp-inject" and runtime_instance is None:
             try:
                 timeout = 3.0 if probe_mode == "quick" else 6.0
                 latency_ms = transport_manager.test_delay_via_socks5(timeout_s=timeout)
@@ -321,7 +322,8 @@ class ProfilePingService:
 
     def _speed_probe_sync(self, profile_record: dict, routing: dict, timeout_s: float, probe_mode: ProbeMode) -> dict:
         mode = self._runtime_service.get_runtime_mode()
-        if mode == "tcp-inject":
+        runtime_instance = self._runtime_service._instance
+        if mode == "tcp-inject" and runtime_instance is None:
             try:
                 bytes_per_sec = transport_manager.test_speed_via_socks5(timeout_s=timeout_s)
                 return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
