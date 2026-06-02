@@ -28,10 +28,6 @@ class PingTaskState:
     cancel_requested: bool = False
     mode: str | None = None
 
-
-ProbeMode = str
-
-
 class ProfilePingService:
     def __init__(
             self,
@@ -61,7 +57,7 @@ class ProfilePingService:
             payload["trace"] = trace
         await self._publish_event("log", payload)
 
-    async def ping_profile(self, profile_id: str, timeout_s: float = 8.0, probe_mode: ProbeMode = "quick") -> dict:
+    async def ping_profile(self, profile_id: str, timeout_s: float = 8.0) -> dict:
         profile = await fetch_profile_by_id(profile_id)
         if profile is None:
             raise ValueError("Profile not found")
@@ -70,7 +66,7 @@ class ProfilePingService:
         core_settings = await fetch_core_settings()
         listener = await fetch_selected_cloudflare_listener()
         async with self._temporary_probe_bridge(core_settings, listener):
-            result = await asyncio.to_thread(self._delay_probe_sync, profile, routing, core_settings, listener, probe_mode)
+            result = await asyncio.to_thread(self._delay_probe_sync, profile, routing, core_settings, listener, timeout_s)
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_ping_result(
             profile_id,
@@ -90,7 +86,7 @@ class ProfilePingService:
         if result["ok"]:
             await self._emit_log(
                 "info",
-                f"delay profile={profile_id} latency={result['latencyMs']} ms mode={probe_mode}",
+                f"delay profile={profile_id} latency={result['latencyMs']} ms",
             )
         else:
             await self._emit_log(
@@ -99,7 +95,7 @@ class ProfilePingService:
             )
         return payload
 
-    async def ping_all(self, profile_ids: list[str], timeout_s: float = 8.0, probe_mode: ProbeMode = "quick") -> dict:
+    async def ping_all(self, profile_ids: list[str], timeout_s: float = 8.0) -> dict:
         async with self._lock:
             if self._state.running:
                 raise RuntimeError("Delay test is already running")
@@ -107,7 +103,7 @@ class ProfilePingService:
             self._state.cancel_requested = False
             self._state.mode = "delay"
 
-        await self._emit_log("info", f"delay test started profiles={len(profile_ids)} mode={probe_mode}")
+        await self._emit_log("info", f"delay test started profiles={len(profile_ids)}")
 
         completed = 0
         successes = 0
@@ -115,7 +111,7 @@ class ProfilePingService:
         cancelled = False
 
         try:
-            results = await self._probe_all(profile_ids, timeout_s, mode="delay", probe_mode=probe_mode)
+            results = await self._probe_all(profile_ids, timeout_s, mode="delay")
             completed = results["completed"]
             successes = results["successes"]
             failures = results["failures"]
@@ -156,7 +152,7 @@ class ProfilePingService:
             self._probe_bridge_refs = 0
             await self._stop_probe_bridge_locked()
 
-    async def speed_profile(self, profile_id: str, timeout_s: float = 15.0, probe_mode: ProbeMode = "quick") -> dict:
+    async def speed_profile(self, profile_id: str, timeout_s: float = 15.0) -> dict:
         profile = await fetch_profile_by_id(profile_id)
         if profile is None:
             raise ValueError("Profile not found")
@@ -165,7 +161,7 @@ class ProfilePingService:
         core_settings = await fetch_core_settings()
         listener = await fetch_selected_cloudflare_listener()
         async with self._temporary_probe_bridge(core_settings, listener):
-            result = await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s, probe_mode)
+            result = await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s)
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_speed_result(profile_id, result["speedMBps"], now_iso)
 
@@ -180,7 +176,7 @@ class ProfilePingService:
         if result["ok"]:
             await self._emit_log(
                 "info",
-                f"speed profile={profile_id} throughput={result['speedMBps']} MB/s mode={probe_mode}",
+                f"speed profile={profile_id} throughput={result['speedMBps']} MB/s",
             )
         else:
             await self._emit_log(
@@ -189,7 +185,7 @@ class ProfilePingService:
             )
         return payload
 
-    async def speed_all(self, profile_ids: list[str], timeout_s: float = 15.0, probe_mode: ProbeMode = "quick") -> dict:
+    async def speed_all(self, profile_ids: list[str], timeout_s: float = 15.0) -> dict:
         async with self._lock:
             if self._state.running:
                 raise RuntimeError("Speed test is already running")
@@ -197,7 +193,7 @@ class ProfilePingService:
             self._state.cancel_requested = False
             self._state.mode = "speed"
 
-        await self._emit_log("info", f"speed test started profiles={len(profile_ids)} mode={probe_mode}")
+        await self._emit_log("info", f"speed test started profiles={len(profile_ids)}")
 
         completed = 0
         successes = 0
@@ -205,7 +201,7 @@ class ProfilePingService:
         cancelled = False
 
         try:
-            results = await self._probe_all(profile_ids, timeout_s, mode="speed", probe_mode=probe_mode)
+            results = await self._probe_all(profile_ids, timeout_s, mode="speed")
             completed = results["completed"]
             successes = results["successes"]
             failures = results["failures"]
@@ -231,7 +227,7 @@ class ProfilePingService:
                 self._state.cancel_requested = False
                 self._state.mode = None
 
-    async def _probe_all(self, profile_ids: list[str], timeout_s: float, mode: str, probe_mode: ProbeMode) -> dict:
+    async def _probe_all(self, profile_ids: list[str], timeout_s: float, mode: str) -> dict:
         queue: asyncio.Queue[str | None] = asyncio.Queue()
         for profile_id in profile_ids:
             queue.put_nowait(profile_id)
@@ -259,10 +255,10 @@ class ProfilePingService:
 
                 try:
                     if mode == "delay":
-                        result = await self.ping_profile(profile_id, timeout_s=timeout_s, probe_mode=probe_mode)
+                        result = await self.ping_profile(profile_id, timeout_s=timeout_s)
                         ok = bool(result["ok"])
                     else:
-                        result = await self.speed_profile(profile_id, timeout_s=timeout_s, probe_mode=probe_mode)
+                        result = await self.speed_profile(profile_id, timeout_s=timeout_s)
                         ok = bool(result["ok"])
                 except Exception as exc:  # noqa: BLE001
                     now_iso = datetime.now(timezone.utc).isoformat()
@@ -391,15 +387,14 @@ class ProfilePingService:
         routing: dict,
         core_settings: dict,
         listener: dict | None,
-        probe_mode: ProbeMode,
+        timeout_s: float,
     ) -> dict:
         # Check current runtime mode
         mode = self._runtime_service.get_runtime_mode()
         runtime_instance = self._runtime_service._instance
         if self._runtime_service._status.state == "running" and mode == "tcp-inject" and runtime_instance is None:
             try:
-                timeout = 3.0 if probe_mode == "quick" else 6.0
-                latency_ms = transport_manager.test_delay_via_socks5(timeout_s=timeout)
+                latency_ms = transport_manager.test_delay_via_socks5(timeout_s=timeout_s)
                 return {"ok": True, "latencyMs": max(1, int(latency_ms))}
             except Exception as exc:
                 return {"ok": False, "latencyMs": -1, "error": str(exc)}
@@ -409,7 +404,7 @@ class ProfilePingService:
             return {"ok": False, "latencyMs": None, "error": f"sing-box binary not found at {binary_path}"}
         try:
             profile = self._probe_profile_for_transport(profile_record, routing, core_settings, listener)
-            latency_ms = test_delay(profile, binary_path, routing=routing, mode=probe_mode)
+            latency_ms = test_delay(profile, binary_path, routing=routing, timeout_s=timeout_s)
             return {"ok": True, "latencyMs": max(1, int(latency_ms))}
         except Exception as exc:
             return {"ok": False, "latencyMs": -1, "error": str(exc)}
@@ -421,7 +416,6 @@ class ProfilePingService:
         core_settings: dict,
         listener: dict | None,
         timeout_s: float,
-        probe_mode: ProbeMode,
     ) -> dict:
         mode = self._runtime_service.get_runtime_mode()
         runtime_instance = self._runtime_service._instance
@@ -436,14 +430,12 @@ class ProfilePingService:
         if not binary_path.exists():
             return {"ok": False, "speedMBps": None, "error": f"sing-box binary not found at {binary_path}"}
         try:
-            effective_seconds = min(timeout_s, 4.0) if probe_mode == "quick" else min(timeout_s, 10.0)
             profile = self._probe_profile_for_transport(profile_record, routing, core_settings, listener)
             bytes_per_sec = test_speed(
                 profile,
                 binary_path,
                 routing=routing,
-                seconds=max(0.8 if probe_mode == "quick" else 2.0, effective_seconds),
-                mode=probe_mode,
+                seconds=max(0.8, min(timeout_s, 4.0)),
             )
             return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
         except Exception as exc:

@@ -4,7 +4,6 @@ import type {
   CoreStatus,
   Profile,
   ProfileImportResult,
-  ProbeMode,
   RoutingConfig,
   UiSettings
 } from "@/types";
@@ -85,20 +84,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name })
     }),
-  pingProfile: (profileId: string, timeoutMs = 8000, mode: ProbeMode = "quick") =>
+  pingProfile: (profileId: string, timeoutMs = 2500) =>
     request<{ profileId: string; ok: boolean; latencyMs: number | null; error?: string; at: string }>(
       `/api/profiles/${profileId}/ping`,
       {
         method: "POST",
-        body: JSON.stringify({ timeout_ms: timeoutMs, mode })
+        body: JSON.stringify({ timeout_ms: timeoutMs })
       }
     ),
-  speedProfile: (profileId: string, timeoutMs = 15000, mode: ProbeMode = "quick") =>
+  speedProfile: (profileId: string, timeoutMs = 2500) =>
     request<{ profileId: string; ok: boolean; speedMBps: number | null; error?: string; at: string }>(
       `/api/profiles/${profileId}/speed`,
       {
         method: "POST",
-        body: JSON.stringify({ timeout_ms: timeoutMs, mode })
+        body: JSON.stringify({ timeout_ms: timeoutMs })
       }
     ),
   exportProfile: (profileId: string) =>
@@ -129,20 +128,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text })
     }),
-  pingAllProfiles: (profileIds?: string[], timeoutMs = 8000, mode: ProbeMode = "quick") =>
+  pingAllProfiles: (profileIds?: string[], timeoutMs = 2500) =>
     request<{ running: boolean; completed: number; successes: number; failures: number; cancelled: boolean }>(
       "/api/profiles/ping-all",
       {
         method: "POST",
-        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs, mode })
+        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs })
       }
     ),
-  speedAllProfiles: (profileIds?: string[], timeoutMs = 15000, mode: ProbeMode = "quick") =>
+  speedAllProfiles: (profileIds?: string[], timeoutMs = 2500) =>
     request<{ running: boolean; completed: number; successes: number; failures: number; cancelled: boolean }>(
       "/api/profiles/speed-all",
       {
         method: "POST",
-        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs, mode })
+        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs })
       }
     ),
   cancelPingAll: () =>

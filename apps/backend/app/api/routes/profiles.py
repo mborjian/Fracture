@@ -36,13 +36,11 @@ class RenamePayload(BaseModel):
 
 class PingOnePayload(BaseModel):
     timeout_ms: int = Field(default=8000, ge=500, le=30000)
-    mode: str = Field(default="quick", pattern="^(quick|full)$")
 
 
 class PingAllPayload(BaseModel):
     profile_ids: list[str] | None = None
     timeout_ms: int = Field(default=8000, ge=500, le=30000)
-    mode: str = Field(default="quick", pattern="^(quick|full)$")
 
 
 class ReorderProfilesPayload(BaseModel):
@@ -130,7 +128,6 @@ async def profiles_ping_one(profile_id: str, payload: PingOnePayload, request: R
         return await _ping_service(request).ping_profile(
             profile_id,
             timeout_s=payload.timeout_ms / 1000,
-            probe_mode=payload.mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -142,7 +139,6 @@ async def profiles_speed_one(profile_id: str, payload: PingOnePayload, request: 
         return await _ping_service(request).speed_profile(
             profile_id,
             timeout_s=payload.timeout_ms / 1000,
-            probe_mode=payload.mode,
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -159,7 +155,6 @@ async def profiles_ping_all(payload: PingAllPayload, request: Request) -> dict:
         return await _ping_service(request).ping_all(
             ids,
             timeout_s=payload.timeout_ms / 1000,
-            probe_mode=payload.mode,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -176,7 +171,6 @@ async def profiles_speed_all(payload: PingAllPayload, request: Request) -> dict:
         return await _ping_service(request).speed_all(
             ids,
             timeout_s=payload.timeout_ms / 1000,
-            probe_mode=payload.mode,
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

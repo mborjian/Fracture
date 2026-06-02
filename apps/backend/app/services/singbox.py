@@ -22,9 +22,7 @@ from uuid import uuid4
 from app.core.config import settings
 from app.services.curl_socks import probe_latency_via_socks5
 
-DEFAULT_DELAY_URL = "https://www.gstatic.com/generate_204"
-DEFAULT_SPEED_URL = "https://speed.hetzner.de/100MB.bin"
-DEFAULT_QUICK_SPEED_URL = "https://cachefly.cachefly.net/1mb.test"
+DEFAULT_SPEED_URL = "https://cachefly.cachefly.net/1mb.test"
 DEFAULT_PROXY_PORT = 2081
 DEFAULT_HTTP_PORT = 2080
 DEFAULT_TUN_NAME = "fracture-singbox"
@@ -1216,8 +1214,7 @@ def test_delay(
     profile: Profile,
     sing_box: Path,
     routing: dict[str, Any] | None = None,
-    url: str = DEFAULT_DELAY_URL,
-    mode: str = "quick",
+    timeout_s: float = 8.0,
 ) -> float:
     socks_port = pick_free_port()
     http_port = pick_free_port()
@@ -1231,14 +1228,7 @@ def test_delay(
         routing=routing,
         config_name="delay.json",
     )
-    if mode == "quick":
-        return float(probe_latency_via_socks5("127.0.0.1", instance.socks_port, timeout_s=15.0))
-
-    opener = make_proxy_opener(instance.http_port)
-    started = time.perf_counter()
-    with opener.open(url, timeout=8) as response:
-        response.read(1)
-    return (time.perf_counter() - started) * 1000.0
+    return float(probe_latency_via_socks5("127.0.0.1", instance.socks_port, timeout_s=timeout_s))
 
 
 def test_speed(
@@ -1247,7 +1237,6 @@ def test_speed(
     routing: dict[str, Any] | None = None,
     url: str = DEFAULT_SPEED_URL,
     seconds: float = 8.0,
-    mode: str = "quick",
 ) -> float:
     socks_port = pick_free_port()
     http_port = pick_free_port()
@@ -1263,9 +1252,8 @@ def test_speed(
     )
     total = 0
     opener = make_proxy_opener(instance.http_port)
-    effective_url = DEFAULT_QUICK_SPEED_URL if mode == "quick" else url
     started = time.perf_counter()
-    with opener.open(effective_url, timeout=20) as response:
+    with opener.open(url, timeout=20) as response:
         while True:
             chunk = response.read(64 * 1024)
             if not chunk:

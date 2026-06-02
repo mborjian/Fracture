@@ -10,7 +10,7 @@ import { useProfilesQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import { useAppStore } from "@/store/useAppStore";
-import type { ProbeMode, Profile } from "@/types";
+import type { Profile } from "@/types";
 
 type ContextMenuState = {
   x: number;
@@ -65,7 +65,6 @@ export function ProfilesPage() {
   const [testingSpeedIds, setTestingSpeedIds] = useState<Set<string>>(new Set());
   const [pingOverrides, setPingOverrides] = useState<MetricOverrides>({});
   const [speedOverrides, setSpeedOverrides] = useState<MetricOverrides>({});
-  const [probeMode, setProbeMode] = useState<ProbeMode>("quick");
   const dragDepthRef = useRef(0);
   const importTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const ensuringSelectionRef = useRef(false);
@@ -257,10 +256,10 @@ export function ProfilesPage() {
     setTestingPingIds(new Set(ids));
     setPingOverrides(Object.fromEntries(ids.map((id) => [id, null])));
     try {
-      const effectiveResult = await api.pingAllProfiles(ids, probeMode === "quick" ? 2500 : 6000, probeMode);
+      const effectiveResult = await api.pingAllProfiles(ids);
       await refreshProfiles();
       setPingOverrides({});
-      toast.success(`${probeMode === "quick" ? "Quick" : "Full"} delay test done: ${effectiveResult.successes} ok, ${effectiveResult.failures} failed`);
+      toast.success(`Delay test done: ${effectiveResult.successes} ok, ${effectiveResult.failures} failed`);
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -304,10 +303,10 @@ export function ProfilesPage() {
     setTestingSpeedIds(new Set(ids));
     setSpeedOverrides(Object.fromEntries(ids.map((id) => [id, null])));
     try {
-      const result = await api.speedAllProfiles(ids, probeMode === "quick" ? 2500 : 7000, probeMode);
+      const result = await api.speedAllProfiles(ids);
       await refreshProfiles();
       setSpeedOverrides({});
-      toast.success(`${probeMode === "quick" ? "Quick" : "Full"} speed test done: ${result.successes} ok, ${result.failures} failed`);
+      toast.success(`Speed test done: ${result.successes} ok, ${result.failures} failed`);
     } catch (error) {
       toast.error((error as Error).message);
     } finally {
@@ -367,15 +366,15 @@ export function ProfilesPage() {
       if (action === "ping") {
         setTestingPingIds(new Set([profile.id]));
         setPingOverrides((prev) => ({ ...prev, [profile.id]: null }));
-        const result = await api.pingProfile(profile.id, probeMode === "quick" ? 2500 : 6000, probeMode);
+        const result = await api.pingProfile(profile.id);
         setPingOverrides((prev) => ({ ...prev, [profile.id]: result.latencyMs }));
-        toast.success(result.ok ? `${probeMode === "quick" ? "Quick" : "Full"} delay: ${result.latencyMs} ms` : `Delay failed: ${result.error ?? "unknown error"}`);
+        toast.success(result.ok ? `Delay: ${result.latencyMs} ms` : `Delay failed: ${result.error ?? "unknown error"}`);
       } else if (action === "speed") {
         setTestingSpeedIds(new Set([profile.id]));
         setSpeedOverrides((prev) => ({ ...prev, [profile.id]: null }));
-        const result = await api.speedProfile(profile.id, probeMode === "quick" ? 2500 : 7000, probeMode);
+        const result = await api.speedProfile(profile.id);
         setSpeedOverrides((prev) => ({ ...prev, [profile.id]: result.ok ? result.speedMBps : null }));
-        toast.success(result.ok ? `${probeMode === "quick" ? "Quick" : "Full"} speed: ${result.speedMBps} MB/s` : `Speed test failed: ${result.error ?? "unknown error"}`);
+        toast.success(result.ok ? `Speed: ${result.speedMBps} MB/s` : `Speed test failed: ${result.error ?? "unknown error"}`);
       } else if (action === "export") {
         const link = profile.link?.trim() ? profile.link : (await api.exportProfile(profile.id)).link;
         await navigator.clipboard.writeText(link);
@@ -446,29 +445,13 @@ export function ProfilesPage() {
   return (
     <div className="bg-panel">
       <div className="sticky -top-4 z-20 -mx-4 px-4 pt-4 bg-panel flex flex-wrap items-center gap-2 border-b border-border/60 pb-3 mb-2">
-        <div className="inline-flex h-9 items-center rounded-full border border-border bg-panelAlt p-1 text-xs">
-          <button
-            type="button"
-            className={cn("rounded-full px-3 py-1 transition-colors", probeMode === "quick" ? "bg-accent text-white" : "text-textMuted")}
-            onClick={() => setProbeMode("quick")}
-          >
-            Quick
-          </button>
-          <button
-            type="button"
-            className={cn("rounded-full px-3 py-1 transition-colors", probeMode === "full" ? "bg-accent text-white" : "text-textMuted")}
-            onClick={() => setProbeMode("full")}
-          >
-            Full
-          </button>
-        </div>
         <Button variant="secondary" size="sm" className="text-xs" onClick={() => void handlePingAll()} disabled={pingAllRunning}>
           {pingAllRunning ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <TimerReset className="mr-1.5 h-4 w-4" />}
-          {probeMode === "quick" ? "Quick Delay" : "Full Delay"}
+          Delay
         </Button>
         <Button variant="secondary" size="sm" className="text-xs" onClick={() => void handleSpeedAll()} disabled={speedAllRunning}>
           {speedAllRunning ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Gauge className="mr-1.5 h-4 w-4" />}
-          {probeMode === "quick" ? "Quick Speed" : "Full Speed"}
+          Speed
         </Button>
         <Button variant="secondary" size="sm" className="text-xs" onClick={() => void handleDeleteFailed()}>
           <Trash2 className="mr-1.5 h-4 w-4" />

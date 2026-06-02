@@ -112,5 +112,3 @@ export interface WsEvent<T = unknown> {
   type: string;
   payload: T;
 }
-
-export type ProbeMode = "quick" | "full";
