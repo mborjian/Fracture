@@ -4,8 +4,9 @@ import contextlib
 import os
 import socket
 import threading
-import time
 from typing import Optional
+
+from app.services.curl_socks import measure_download_via_socks5, probe_latency_via_socks5
 
 from .http_proxy import HttpProxyServer
 from .packet_templates import ClientHelloMaker
@@ -264,43 +265,26 @@ def _resolve_local_device_ip() -> str | None:
 
 def test_delay_via_socks5(timeout_s: float = 3.0) -> float:
     """
-    Measure latency (ms) to www.gstatic.com:443 through the active SOCKS5 proxy.
+    Measure real HTTP latency through the active SOCKS5 proxy.
     """
     port = get_active_socks_port()
     if not port:
         raise RuntimeError("No active SOCKS5 proxy")
-    start = time.perf_counter()
     try:
-        _socks5_connect("127.0.0.1", port, "www.gstatic.com", 443, timeout_s)
-        return (time.perf_counter() - start) * 1000.0
+        return float(probe_latency_via_socks5("127.0.0.1", port, timeout_s=timeout_s))
     except Exception as e:
         raise TimeoutError(f"SOCKS5 delay test failed: {e}")
 
 
 def test_speed_via_socks5(timeout_s: float = 5.0) -> float:
     """
-    Download a 1 MB test file via SOCKS5 proxy and return throughput (bytes/sec).
+    Download a real payload via SOCKS5 proxy and return throughput (bytes/sec).
     """
     port = get_active_socks_port()
     if not port:
         raise RuntimeError("No active SOCKS5 proxy")
-    start = time.perf_counter()
-    total_bytes = 0
     try:
-        with _socks5_connect("127.0.0.1", port, "cachefly.cachefly.net", 80, timeout_s) as sock:
-            sock.sendall(
-                b"GET /1mb.test HTTP/1.1\r\n"
-                b"Host: cachefly.cachefly.net\r\n"
-                b"User-Agent: Fracture\r\n"
-                b"Connection: close\r\n\r\n"
-            )
-            while time.perf_counter() - start < timeout_s:
-                chunk = sock.recv(65535)
-                if not chunk:
-                    break
-                total_bytes += len(chunk)
-        elapsed = max(time.perf_counter() - start, 0.001)
-        return total_bytes / elapsed
+        return float(measure_download_via_socks5("127.0.0.1", port, timeout_s=timeout_s))
     except Exception as e:
         raise TimeoutError(f"SOCKS5 speed test failed: {e}")
 

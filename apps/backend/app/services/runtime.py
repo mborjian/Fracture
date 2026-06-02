@@ -24,7 +24,8 @@ from app.db.database import (
     fetch_profile_by_id,
     fetch_routing_config,
 )
-from app.services.curl_socks import curl_available, fetch_egress_via_socks5
+from app.services.curl_socks import curl_available, fetch_egress_via_socks5, probe_latency_via_socks5
+from app.services.network_counters import total_rxtx_bytes
 from app.services.singbox import (
     DEFAULT_TUN_NAME,
     Profile,
@@ -119,6 +120,10 @@ class CoreRuntimeService:
         self._saved_system_proxy_state: dict | None = None
         self._clash_traffic_stream: urllib.request.addinfourl | None = None
         self._bridge_server: asyncio.Server | None = None
+        self._session_baseline_rx = 0
+        self._session_baseline_tx = 0
+        self._last_counter_rx = 0
+        self._last_counter_tx = 0
 
     async def get_status(self) -> dict:
         async with self._lock:
@@ -155,6 +160,7 @@ class CoreRuntimeService:
             self._status.egress_country = None
             self._status.last_error = None
             self._last_sample_monotonic = None
+            self._reset_network_counters_locked()
             await self._refresh_runtime_metadata_locked()
             await self._emit_status_locked()
             await self._emit_log_locked("info", f"starting runtime={runtime} profile={profile_id or 'auto'}")
@@ -168,6 +174,7 @@ class CoreRuntimeService:
                 self._status.started_at = datetime.now(timezone.utc)
                 self._status.ready = True
                 self._last_sample_monotonic = time.monotonic()
+                self._prime_network_counters_locked()
                 self._start_sampler_locked()
                 await self._refresh_egress_info_locked()
                 await self._emit_log_locked("info", f"runtime={runtime} started")
@@ -204,6 +211,7 @@ class CoreRuntimeService:
             self._status.egress_country = None
             self._status.last_error = None
             self._last_sample_monotonic = None
+            self._reset_network_counters_locked()
             await self._refresh_runtime_metadata_locked()
             await self._emit_log_locked("info", "runtime stopped")
             await self._emit_status_locked()
@@ -535,6 +543,66 @@ class CoreRuntimeService:
             with contextlib.suppress(Exception):
                 stream.close()
 
+    def _prime_network_counters_locked(self) -> None:
+        counters = total_rxtx_bytes()
+        if counters is None:
+            self._reset_network_counters_locked()
+            return
+        rx, tx = counters
+        self._session_baseline_rx = rx
+        self._session_baseline_tx = tx
+        self._last_counter_rx = rx
+        self._last_counter_tx = tx
+        self._status.session_download_bytes = 0
+        self._status.session_upload_bytes = 0
+        self._status.download_bps = 0
+        self._status.upload_bps = 0
+
+    def _reset_network_counters_locked(self) -> None:
+        self._session_baseline_rx = 0
+        self._session_baseline_tx = 0
+        self._last_counter_rx = 0
+        self._last_counter_tx = 0
+        self._status.session_download_bytes = 0
+        self._status.session_upload_bytes = 0
+        self._status.download_bps = 0
+        self._status.upload_bps = 0
+
+    def _update_network_counters_locked(self, elapsed: float) -> bool:
+        counters = total_rxtx_bytes()
+        if counters is None:
+            self._status.download_bps = 0
+            self._status.upload_bps = 0
+            return False
+
+        rx, tx = counters
+        if self._session_baseline_rx == 0 and self._session_baseline_tx == 0:
+            self._session_baseline_rx = rx
+            self._session_baseline_tx = tx
+        if self._last_counter_rx == 0 and self._last_counter_tx == 0:
+            self._last_counter_rx = rx
+            self._last_counter_tx = tx
+
+        if self._status.egress_ip is None:
+            self._session_baseline_rx = rx
+            self._session_baseline_tx = tx
+            self._last_counter_rx = rx
+            self._last_counter_tx = tx
+            self._status.session_download_bytes = 0
+            self._status.session_upload_bytes = 0
+            self._status.download_bps = 0
+            self._status.upload_bps = 0
+            return True
+
+        self._status.session_download_bytes = max(rx - self._session_baseline_rx, 0)
+        self._status.session_upload_bytes = max(tx - self._session_baseline_tx, 0)
+        if elapsed > 0:
+            self._status.download_bps = max(rx - self._last_counter_rx, 0) / elapsed
+            self._status.upload_bps = max(tx - self._last_counter_tx, 0) / elapsed
+        self._last_counter_rx = rx
+        self._last_counter_tx = tx
+        return True
+
     def _start_sampler_locked(self) -> None:
         if self._sampler_task is not None:
             self._sampler_task.cancel()
@@ -553,14 +621,13 @@ class CoreRuntimeService:
                     elapsed = now - self._last_sample_monotonic if self._last_sample_monotonic is not None else 1.0
                     self._last_sample_monotonic = now
 
-                    down, up = _traffic.consume()
-
-                    self._status.download_bps = down / elapsed
-                    self._status.upload_bps = up / elapsed
-                    self._status.session_download_bytes += down
-                    self._status.session_upload_bytes += up
-
-                    await self._refresh_egress_info_locked()
+                    if not self._update_network_counters_locked(elapsed):
+                        down, up = _traffic.consume()
+                        if elapsed > 0:
+                            self._status.download_bps = down / elapsed
+                            self._status.upload_bps = up / elapsed
+                        self._status.session_download_bytes += down
+                        self._status.session_upload_bytes += up
                     await self._emit_status_locked()
                     continue
 
@@ -583,16 +650,15 @@ class CoreRuntimeService:
                 elapsed = 0.0 if self._last_sample_monotonic is None else max(0.0, now - self._last_sample_monotonic)
                 self._last_sample_monotonic = now
                 await self._refresh_runtime_metadata_locked()
-                down, up = await asyncio.to_thread(self._read_singbox_traffic_delta)
-                await self._refresh_egress_info_locked()
-                if down is not None and up is not None and elapsed > 0:
-                    self._status.download_bps = down / elapsed
-                    self._status.upload_bps = up / elapsed
-                    self._status.session_download_bytes += down
-                    self._status.session_upload_bytes += up
-                else:
-                    self._status.session_download_bytes += self._status.download_bps * elapsed
-                    self._status.session_upload_bytes += self._status.upload_bps * elapsed
+                if self._status.egress_ip is None:
+                    self._reset_network_counters_locked()
+                elif not self._update_network_counters_locked(elapsed):
+                    down, up = await asyncio.to_thread(self._read_singbox_traffic_delta)
+                    if down is not None and up is not None and elapsed > 0:
+                        self._status.download_bps = down / elapsed
+                        self._status.upload_bps = up / elapsed
+                        self._status.session_download_bytes += down
+                        self._status.session_upload_bytes += up
                 await self._emit_status_locked()
 
     async def _refresh_egress_info_locked(self) -> None:
@@ -602,6 +668,8 @@ class CoreRuntimeService:
         socks_port = None
         if self._status.runtime == "tcp-inject":
             socks_port = transport_manager.get_active_socks_port()
+            if socks_port is None and self._instance is not None:
+                socks_port = self._instance.socks_port
         elif self._instance is not None:
             socks_port = self._instance.socks_port
 
@@ -617,6 +685,13 @@ class CoreRuntimeService:
             else:
                 self._status.egress_ip = payload.ip or self._status.egress_ip
                 self._status.egress_country = payload.country or self._status.egress_country
+                with contextlib.suppress(Exception):
+                    self._status.latency_ms = await asyncio.to_thread(
+                        probe_latency_via_socks5,
+                        "127.0.0.1",
+                        socks_port,
+                        8.0,
+                    )
                 return
 
         if self._status.runtime == "tcp-inject" and self._instance is None:

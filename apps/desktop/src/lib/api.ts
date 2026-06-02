@@ -84,7 +84,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ name })
     }),
-  pingProfile: (profileId: string, timeoutMs = 2500) =>
+  pingProfile: (profileId: string, timeoutMs = 8000) =>
     request<{ profileId: string; ok: boolean; latencyMs: number | null; error?: string; at: string }>(
       `/api/profiles/${profileId}/ping`,
       {
@@ -92,7 +92,7 @@ export const api = {
         body: JSON.stringify({ timeout_ms: timeoutMs })
       }
     ),
-  speedProfile: (profileId: string, timeoutMs = 2500) =>
+  speedProfile: (profileId: string, timeoutMs = 12000) =>
     request<{ profileId: string; ok: boolean; speedMBps: number | null; error?: string; at: string }>(
       `/api/profiles/${profileId}/speed`,
       {
@@ -128,7 +128,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ text })
     }),
-  pingAllProfiles: (profileIds?: string[], timeoutMs = 2500) =>
+  pingAllProfiles: (profileIds?: string[], timeoutMs = 8000) =>
     request<{ running: boolean; completed: number; successes: number; failures: number; cancelled: boolean }>(
       "/api/profiles/ping-all",
       {
@@ -136,7 +136,7 @@ export const api = {
         body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs })
       }
     ),
-  speedAllProfiles: (profileIds?: string[], timeoutMs = 2500) =>
+  speedAllProfiles: (profileIds?: string[], timeoutMs = 12000) =>
     request<{ running: boolean; completed: number; successes: number; failures: number; cancelled: boolean }>(
       "/api/profiles/speed-all",
       {

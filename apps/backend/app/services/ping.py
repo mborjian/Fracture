@@ -17,6 +17,7 @@ from app.db.database import (
     save_profile_ping_result,
     save_profile_speed_result,
 )
+from app.services.curl_socks import measure_download_via_socks5, probe_latency_via_socks5
 from app.services.runtime import CoreRuntimeService
 from app.services.singbox import record_to_profile, stop_all_warm_instances, test_delay, test_speed
 from app.services.transport import manager as transport_manager
@@ -315,7 +316,6 @@ class ProfilePingService:
         active_tcp_inject_runtime = (
             self._runtime_service._status.state == "running"
             and self._runtime_service.get_runtime_mode() == "tcp-inject"
-            and self._runtime_service._instance is None
         )
         should_start = (
             core_settings.get("transportMode") == "tcp-inject"
@@ -392,12 +392,18 @@ class ProfilePingService:
         # Check current runtime mode
         mode = self._runtime_service.get_runtime_mode()
         runtime_instance = self._runtime_service._instance
-        if self._runtime_service._status.state == "running" and mode == "tcp-inject" and runtime_instance is None:
+        active_profile_id = self._runtime_service._status.active_profile_id
+        if (
+            self._runtime_service._status.state == "running"
+            and mode == "tcp-inject"
+            and runtime_instance is not None
+            and str(profile_record.get("id", "")) == str(active_profile_id or "")
+        ):
             try:
-                latency_ms = transport_manager.test_delay_via_socks5(timeout_s=timeout_s)
+                latency_ms = probe_latency_via_socks5("127.0.0.1", runtime_instance.socks_port, timeout_s=timeout_s)
                 return {"ok": True, "latencyMs": max(1, int(latency_ms))}
             except Exception as exc:
-                return {"ok": False, "latencyMs": -1, "error": str(exc)}
+                return {"ok": False, "latencyMs": None, "error": str(exc)}
         # Else sing-box mode
         binary_path = settings.singbox_dir / self._runtime_service._binary_name("sing-box")
         if not binary_path.exists():
@@ -407,7 +413,7 @@ class ProfilePingService:
             latency_ms = test_delay(profile, binary_path, routing=routing, timeout_s=timeout_s)
             return {"ok": True, "latencyMs": max(1, int(latency_ms))}
         except Exception as exc:
-            return {"ok": False, "latencyMs": -1, "error": str(exc)}
+            return {"ok": False, "latencyMs": None, "error": str(exc)}
 
     def _speed_probe_sync(
         self,
@@ -419,9 +425,15 @@ class ProfilePingService:
     ) -> dict:
         mode = self._runtime_service.get_runtime_mode()
         runtime_instance = self._runtime_service._instance
-        if self._runtime_service._status.state == "running" and mode == "tcp-inject" and runtime_instance is None:
+        active_profile_id = self._runtime_service._status.active_profile_id
+        if (
+            self._runtime_service._status.state == "running"
+            and mode == "tcp-inject"
+            and runtime_instance is not None
+            and str(profile_record.get("id", "")) == str(active_profile_id or "")
+        ):
             try:
-                bytes_per_sec = transport_manager.test_speed_via_socks5(timeout_s=timeout_s)
+                bytes_per_sec = measure_download_via_socks5("127.0.0.1", runtime_instance.socks_port, timeout_s=timeout_s)
                 return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
             except Exception as exc:
                 return {"ok": False, "speedMBps": None, "error": str(exc)}

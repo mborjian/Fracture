@@ -20,7 +20,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import settings
-from app.services.curl_socks import probe_latency_via_socks5
+from app.services.curl_socks import measure_download_via_socks5, probe_latency_via_socks5
 
 DEFAULT_SPEED_URL = "https://cachefly.cachefly.net/1mb.test"
 DEFAULT_PROXY_PORT = 2081
@@ -1235,7 +1235,6 @@ def test_speed(
     profile: Profile,
     sing_box: Path,
     routing: dict[str, Any] | None = None,
-    url: str = DEFAULT_SPEED_URL,
     seconds: float = 8.0,
 ) -> float:
     socks_port = pick_free_port()
@@ -1250,16 +1249,4 @@ def test_speed(
         routing=routing,
         config_name="speed.json",
     )
-    total = 0
-    opener = make_proxy_opener(instance.http_port)
-    started = time.perf_counter()
-    with opener.open(url, timeout=20) as response:
-        while True:
-            chunk = response.read(64 * 1024)
-            if not chunk:
-                break
-            total += len(chunk)
-            if time.perf_counter() - started >= seconds:
-                break
-    elapsed = max(time.perf_counter() - started, 0.001)
-    return total / elapsed
+    return float(measure_download_via_socks5("127.0.0.1", instance.socks_port, timeout_s=seconds))
