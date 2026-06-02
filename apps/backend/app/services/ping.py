@@ -341,7 +341,7 @@ class ProfilePingService:
         if listener is None:
             raise RuntimeError("TCP Inject probes require a selected listener")
         connect_ip = str(listener.get("CONNECT_IP", "")).strip()
-        connect_port = int(listener.get("CONNECT_PORT", 443))
+        connect_port = 443
         fake_sni = str(listener.get("FAKE_SNI", "")).strip()
         if not connect_ip:
             raise RuntimeError("TCP Inject probes require CONNECT_IP in listener")

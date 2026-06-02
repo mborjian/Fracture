@@ -19,10 +19,7 @@ router = APIRouter(prefix="/api/settings", tags=["settings"])
 
 class CloudflareListenerPayload(BaseModel):
     id: str
-    LISTEN_HOST: str = Field(default="0.0.0.0")
-    LISTEN_PORT: int = Field(default=40443, ge=1, le=65535)
     CONNECT_IP: str = Field(default="")
-    CONNECT_PORT: int = Field(default=443, ge=1, le=65535)
     FAKE_SNI: str = Field(default="")
 
 

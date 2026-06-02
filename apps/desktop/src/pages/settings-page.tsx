@@ -42,10 +42,7 @@ const DEFAULT_ROUTING: RoutingConfig = {
 
 const DEFAULT_LISTENER: CloudflareListener = {
   id: "listener-default",
-  LISTEN_HOST: "0.0.0.0",
-  LISTEN_PORT: 40443,
   CONNECT_IP: "",
-  CONNECT_PORT: 443,
   FAKE_SNI: "",
 };
 
@@ -63,41 +60,15 @@ function formatListenerLabel(listener: CloudflareListener) {
   };
 }
 
-function stripEditableFields(listener: CloudflareListener) {
-  return {
-    LISTEN_HOST: listener.LISTEN_HOST,
-    LISTEN_PORT: listener.LISTEN_PORT,
-    CONNECT_IP: listener.CONNECT_IP,
-    CONNECT_PORT: listener.CONNECT_PORT,
-    FAKE_SNI: listener.FAKE_SNI
-  };
-}
-
-function validateListenerPayload(parsed: unknown): Omit<CloudflareListener, "id"> {
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    throw new Error("Listener JSON must be an object");
+function normalizeConnectIp(value: string) {
+  const host = value.trim();
+  if (!host) {
+    return "";
   }
-  const object = parsed as Record<string, unknown>;
-  const requiredKeys = ["LISTEN_HOST", "LISTEN_PORT", "CONNECT_IP", "CONNECT_PORT", "FAKE_SNI"] as const;
-  const keys = Object.keys(object);
-  for (const key of requiredKeys) {
-    if (!(key in object)) {
-      throw new Error(`Missing key: ${key}`);
-    }
+  if (host.includes(":")) {
+    throw new Error("CONNECT IP should not include a port");
   }
-  for (const key of keys) {
-    if (!requiredKeys.includes(key as (typeof requiredKeys)[number])) {
-      throw new Error(`Unexpected key: ${key}`);
-    }
-  }
-
-  return {
-    LISTEN_HOST: String(object.LISTEN_HOST ?? ""),
-    LISTEN_PORT: Number(object.LISTEN_PORT ?? 0),
-    CONNECT_IP: String(object.CONNECT_IP ?? ""),
-    CONNECT_PORT: Number(object.CONNECT_PORT ?? 0),
-    FAKE_SNI: String(object.FAKE_SNI ?? "")
-  };
+  return host;
 }
 
 function applyTheme(theme: UiSettings["theme"]) {
@@ -116,7 +87,8 @@ export function SettingsPage() {
   const { data: uiData, refetch: refetchUi } = useUiSettingsQuery();
 
   const [cloudflareDraft, setCloudflareDraft] = useState<CloudflareConfig>(DEFAULT_CLOUDFLARE);
-  const [listenerText, setListenerText] = useState(JSON.stringify(stripEditableFields(DEFAULT_LISTENER), null, 2));
+  const [connectEndpoint, setConnectEndpoint] = useState("");
+  const [fakeSniDraft, setFakeSniDraft] = useState("");
   const [listenerOpen, setListenerOpen] = useState(false);
   const [coreDraft, setCoreDraft] = useState<CoreSettings>(DEFAULT_CORE);
   const [routingDraft, setRoutingDraft] = useState<RoutingConfig>(DEFAULT_ROUTING);
@@ -129,7 +101,8 @@ export function SettingsPage() {
   useEffect(() => {
     if (cloudflareData) {
       setCloudflareDraft(cloudflareData);
-      setListenerText(JSON.stringify(stripEditableFields(cloudflareData.selected), null, 2));
+      setConnectEndpoint(cloudflareData.selected.CONNECT_IP);
+      setFakeSniDraft(cloudflareData.selected.FAKE_SNI);
     }
   }, [cloudflareData]);
 
@@ -179,14 +152,15 @@ export function SettingsPage() {
   );
 
   const listenerDirty = useMemo(() => {
-    const current = JSON.stringify(stripEditableFields(selectedListener), null, 2).trim();
-    return listenerText.trim() !== current;
-  }, [listenerText, selectedListener]);
+    const currentEndpoint = selectedListener.CONNECT_IP.trim();
+    return connectEndpoint.trim() !== currentEndpoint || fakeSniDraft !== selectedListener.FAKE_SNI;
+  }, [connectEndpoint, fakeSniDraft, selectedListener]);
 
   const persistCloudflare = async (nextDraft: CloudflareConfig, successMessage?: string) => {
     const saved = await api.saveCloudflareConfig(nextDraft);
     setCloudflareDraft(saved);
-    setListenerText(JSON.stringify(stripEditableFields(saved.selected), null, 2));
+    setConnectEndpoint(saved.selected.CONNECT_IP);
+    setFakeSniDraft(saved.selected.FAKE_SNI);
     await refetchCloudflare();
     if (successMessage) {
       toast.success(successMessage);
@@ -203,7 +177,8 @@ export function SettingsPage() {
       selected: nextSelected
     };
     setCloudflareDraft(nextDraft);
-    setListenerText(JSON.stringify(stripEditableFields(nextSelected), null, 2));
+    setConnectEndpoint(nextSelected.CONNECT_IP);
+    setFakeSniDraft(nextSelected.FAKE_SNI);
     setListenerOpen(false);
     try {
       await persistCloudflare(nextDraft);
@@ -222,7 +197,8 @@ export function SettingsPage() {
       listeners: [...cloudflareDraft.listeners, nextListener]
     };
     setCloudflareDraft(nextDraft);
-    setListenerText(JSON.stringify(stripEditableFields(nextListener), null, 2));
+    setConnectEndpoint("");
+    setFakeSniDraft("");
     try {
       await persistCloudflare(nextDraft, "Listener added");
       setListenerOpen(false);
@@ -231,14 +207,15 @@ export function SettingsPage() {
     }
   };
 
-  const saveListenerJson = async () => {
+  const saveListener = async () => {
     if (savingJson || !listenerDirty) return;
     setSavingJson(true);
     try {
-      const validated = validateListenerPayload(JSON.parse(listenerText));
+      const CONNECT_IP = normalizeConnectIp(connectEndpoint);
       const updated: CloudflareListener = {
         ...selectedListener,
-        ...validated
+        CONNECT_IP,
+        FAKE_SNI: fakeSniDraft.trim()
       };
       const nextDraft: CloudflareConfig = {
         ...cloudflareDraft,
@@ -270,7 +247,8 @@ export function SettingsPage() {
       listeners: remaining
     };
     setCloudflareDraft(nextDraft);
-    setListenerText(JSON.stringify(stripEditableFields(nextSelected), null, 2));
+    setConnectEndpoint(nextSelected.CONNECT_IP);
+    setFakeSniDraft(nextSelected.FAKE_SNI);
     try {
       await persistCloudflare(nextDraft, "Listener removed");
     } catch (error) {
@@ -355,7 +333,7 @@ export function SettingsPage() {
     <div className="space-y-4">
       <div className="grid grid-cols-[minmax(0,1fr)_360px] gap-4">
         <Card className="flex h-[340px] flex-col rounded-xl">
-          <h3 className="mb-3 text-sm font-semibold">Cloudflare Listener JSON</h3>
+          <h3 className="mb-3 text-sm font-semibold">Cloudflare Listener</h3>
           <div className="mb-3 flex items-center gap-2">
             <div ref={listenerMenuRef} className="relative min-w-0 flex-1">
               <button
@@ -398,38 +376,50 @@ export function SettingsPage() {
             </Button>
           </div>
 
-          <div className="relative min-h-0 flex-1">
-            <textarea
-              className="h-full w-full resize-none rounded-xl border border-border bg-panelAlt px-3 py-2 pr-24 font-mono text-sm text-text outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              value={listenerText}
-              onChange={(event) => setListenerText(event.target.value)}
-              spellCheck={false}
-            />
-            <div className="absolute bottom-2 right-2 flex items-center gap-2">
-              {cloudflareDraft.listeners.length > 1 ? (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  className="h-8 w-8 rounded-full px-0"
-                  onClick={() => void removeSelectedListener()}
-                  title="Remove listener"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              ) : null}
-              {listenerDirty ? (
-                <Button
-                  size="sm"
-                  className="h-8 w-8 rounded-full px-0"
-                  onClick={() => void saveListenerJson()}
-                  disabled={savingJson}
-                  title="Save listener JSON"
-                >
-                  {savingJson ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
-                </Button>
-              ) : null}
+            <div className="grid gap-3 mt-3">
+              <label className="space-y-1 text-sm">
+                <div className="text-xs text-textMuted">Connect IP</div>
+                <Input
+                  value={connectEndpoint}
+                  onChange={(event) => setConnectEndpoint(event.target.value)}
+                  placeholder="104.19.229.21"
+                  spellCheck={false}
+                />
+              </label>
+              <label className="space-y-1 text-sm">
+                <div className="text-xs text-textMuted">Fake SNI</div>
+                <Input
+                  value={fakeSniDraft}
+                  onChange={(event) => setFakeSniDraft(event.target.value)}
+                  placeholder="hcaptcha.com"
+                  spellCheck={false}
+                />
+              </label>
+              <div className="flex items-center justify-end gap-2 pt-1">
+                {cloudflareDraft.listeners.length > 1 ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    className="h-8 w-8 rounded-full px-0"
+                    onClick={() => void removeSelectedListener()}
+                    title="Remove listener"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                ) : null}
+                {listenerDirty ? (
+                  <Button
+                    size="sm"
+                    className="h-8 w-8 rounded-full px-0"
+                    onClick={() => void saveListener()}
+                    disabled={savingJson}
+                    title="Save listener"
+                  >
+                    {savingJson ? <Check className="h-4 w-4" /> : <Save className="h-4 w-4" />}
+                  </Button>
+                ) : null}
+              </div>
             </div>
-          </div>
         </Card>
 
         <Card className="flex h-[340px] flex-col rounded-xl">

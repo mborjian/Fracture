@@ -19,10 +19,7 @@ _DEFAULT_CLOUDFLARE_DOC: dict[str, Any] = {
     "listeners": [
         {
             "id": "listener-default",
-            "LISTEN_HOST": "0.0.0.0",
-            "LISTEN_PORT": 40443,
             "CONNECT_IP": "",
-            "CONNECT_PORT": 443,
             "FAKE_SNI": "",
         }
     ],
@@ -122,10 +119,7 @@ def _normalize_cloudflare_doc(payload: dict[str, Any]) -> dict[str, Any]:
             normalized_listeners.append(
                 {
                     "id": listener_id,
-                    "LISTEN_HOST": str(item.get("LISTEN_HOST", "0.0.0.0")),
-                    "LISTEN_PORT": int(item.get("LISTEN_PORT", 40443)),
                     "CONNECT_IP": str(item.get("CONNECT_IP", "")),
-                    "CONNECT_PORT": int(item.get("CONNECT_PORT", 443)),
                     "FAKE_SNI": str(item.get("FAKE_SNI", "")),
                 }
             )
@@ -141,10 +135,7 @@ def _normalize_cloudflare_doc(payload: dict[str, Any]) -> dict[str, Any]:
 
     legacy = {
         "id": "listener-default",
-        "LISTEN_HOST": str(payload.get("LISTEN_HOST", "0.0.0.0")),
-        "LISTEN_PORT": int(payload.get("LISTEN_PORT", 40443)),
         "CONNECT_IP": str(payload.get("CONNECT_IP", "")),
-        "CONNECT_PORT": int(payload.get("CONNECT_PORT", 443)),
         "FAKE_SNI": str(payload.get("FAKE_SNI", "")),
     }
     return {

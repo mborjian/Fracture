@@ -59,10 +59,7 @@ export interface ProfileImportResult {
 
 export interface CloudflareListener {
   id: string;
-  LISTEN_HOST: string;
-  LISTEN_PORT: number;
   CONNECT_IP: string;
-  CONNECT_PORT: number;
   FAKE_SNI: string;
 }
 

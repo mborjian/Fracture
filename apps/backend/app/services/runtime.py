@@ -46,6 +46,10 @@ ConnectionState = Literal["stopped", "starting", "running", "error"]
 
 logger = logging.getLogger(__name__)
 
+TCP_INJECT_LISTEN_HOST = "0.0.0.0"
+TCP_INJECT_LISTEN_PORT = 40443
+TCP_INJECT_CONNECT_PORT = 443
+
 
 @dataclass
 class RuntimeStatus:
@@ -259,10 +263,8 @@ class CoreRuntimeService:
     def _listener_bridge_target(listener: dict[str, object] | None) -> tuple[str, int] | None:
         if listener is None:
             return None
-        listen_host = str(listener.get("LISTEN_HOST", "127.0.0.1")).strip() or "127.0.0.1"
-        listen_port = int(listener.get("LISTEN_PORT", 40443))
-        if listen_port <= 0 or listen_port > 65535:
-            raise RuntimeError("TCP Inject mode requires a valid LISTEN_PORT")
+        listen_host = TCP_INJECT_LISTEN_HOST
+        listen_port = TCP_INJECT_LISTEN_PORT
         connect_host = "127.0.0.1" if listen_host == "0.0.0.0" else listen_host
         return connect_host, listen_port
 
@@ -387,9 +389,9 @@ class CoreRuntimeService:
         if listener is None:
             raise RuntimeError("TCP Inject mode requires a selected listener")
         connect_ip = str((listener or {}).get("CONNECT_IP", "")).strip()
-        connect_port = int((listener or {}).get("CONNECT_PORT", profile.port))
+        connect_port = TCP_INJECT_CONNECT_PORT
         fake_sni = str((listener or {}).get("FAKE_SNI", "")).strip()
-        bridge_host, bridge_port = self._listener_bridge_target(listener) or ("127.0.0.1", 40443)
+        bridge_host, bridge_port = self._listener_bridge_target(listener) or ("127.0.0.1", TCP_INJECT_LISTEN_PORT)
         if not connect_ip:
             raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
         if not fake_sni:
