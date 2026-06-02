@@ -84,3 +84,6 @@ sing-box/*
 logs/
 *.log
 /Cloak/
+
+/graphify-out/
+/.graphify*
