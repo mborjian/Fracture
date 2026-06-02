@@ -496,82 +496,75 @@ export function SettingsPage() {
 
         <div className="col-span-1">
           <Card className="flex h-[340px] flex-col rounded-xl">
-          <h3 className="mb-4 text-sm font-semibold">Network Mode</h3>
-          <ToggleGroup type="single" value={coreDraft.proxyScope} className="w-[180px] mx-auto mb-5"
-            onValueChange={(value) => {
-              if (value) {
-                const nextScope = value as "local" | "lan";
-                void saveProxySettings({
-                  ...coreDraft,
-                  proxyScope: nextScope,
-                });
-                if (nextScope === "lan" && routingDraft.tunMode) {
-                  void saveRoutingSettings({
-                    ...routingDraft,
-                    tunMode: false,
-                    outboundMode: "proxy"
-                  });
-                  toast.info("LAN proxy sharing turned off Full System Tunnel so only one whole-device mode stays active.");
-                }
-              }
-            }}
-          >
-            <ToggleGroupItem value="local" className="gap-2"><Laptop className="h-4 w-4" /> Local</ToggleGroupItem>
-            <ToggleGroupItem value="lan" className="gap-2"><Network className="h-4 w-4" /> LAN</ToggleGroupItem>
-          </ToggleGroup>
+  <h3 className="mb-4 text-sm font-semibold">Network Mode</h3>
 
-          <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-            <div>
-              <div className="font-medium text-text">Full System Tunnel</div>
-              <div className="text-xs text-textMuted">
-                Routes Windows traffic through sing-box TUN instead of relying only on app proxy support.
-              </div>
-              {coreDraft.proxyScope === "lan" ? (
-                <div className="mt-1 text-xs text-warning">
-                  Turning this on will switch proxy sharing back to Local.
-                </div>
-              ) : null}
-            </div>
+  <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+    <div>
+      <div className="font-medium">Proxy Sharing</div>
+      <div className="text-xs text-textMuted">
+        Allow other devices on your network to use Fracture.
+      </div>
+    </div>
 
-            <Switch
-              checked={routingDraft.tunMode}
-              disabled={savingRouting}
-              onCheckedChange={(checked) => {
-                void saveRoutingSettings({
-                  ...routingDraft,
-                  tunMode: checked,
-                  outboundMode: checked ? "tun" : "proxy"
-                });
-                if (checked && coreDraft.proxyScope === "lan") {
-                  void saveProxySettings({
-                    ...coreDraft,
-                    proxyScope: "local"
-                  });
-                  toast.info("Full System Tunnel switched proxy sharing back to Local so only one whole-device mode stays active.");
-                }
-              }}
-            />
-          </label>
+    <Switch
+      checked={coreDraft.proxyScope === "lan"}
+      onCheckedChange={(checked) => {
+        const nextScope = checked ? "lan" : "local";
 
-          <label className="space-y-1 text-sm mb-4">
-              <div className="text-xs text-textMuted">HTTP</div>
-              <Input
-                type="number"
-                value={coreDraft.proxyPort}
-                onChange={(e) => void saveProxySettings({ ...coreDraft, proxyPort: Number(e.target.value) || 0 })}
-                placeholder="HTTP"
-              />
-            </label>
-          <label className="space-y-1 text-sm">
-              <div className="text-xs text-textMuted">SOCKS</div>
-              <Input
-                type="number"
-                value={coreDraft.socksPort}
-                onChange={(e) => void saveProxySettings({ ...coreDraft, socksPort: Number(e.target.value) || 0 })}
-                placeholder="SOCKS"
-              />
-            </label>
-        </Card>
+        void saveProxySettings({
+          ...coreDraft,
+          proxyScope: nextScope,
+        });
+
+        if (checked && routingDraft.tunMode) {
+          void saveRoutingSettings({
+            ...routingDraft,
+            tunMode: false,
+            outboundMode: "proxy",
+          });
+
+          toast.info(
+            "Proxy Sharing turned off Full System Tunnel so only one whole-device mode stays active."
+          );
+        }
+      }}
+    />
+  </label>
+
+  {coreDraft.proxyScope === "lan" && (
+    <div className="grid grid-cols-2 gap-3">
+      <label className="space-y-1 text-sm">
+        <div className="text-xs text-textMuted">HTTP</div>
+        <Input
+          type="number"
+          value={coreDraft.proxyPort}
+          onChange={(e) =>
+            void saveProxySettings({
+              ...coreDraft,
+              proxyPort: Number(e.target.value) || 0,
+            })
+          }
+          placeholder="HTTP"
+        />
+      </label>
+
+      <label className="space-y-1 text-sm">
+        <div className="text-xs text-textMuted">SOCKS</div>
+        <Input
+          type="number"
+          value={coreDraft.socksPort}
+          onChange={(e) =>
+            void saveProxySettings({
+              ...coreDraft,
+              socksPort: Number(e.target.value) || 0,
+            })
+          }
+          placeholder="SOCKS"
+        />
+      </label>
+    </div>
+  )}
+</Card>
         </div>
 
         <div className="col-span-1">
@@ -591,26 +584,72 @@ export function SettingsPage() {
           <p className="text-xs text-textMuted mt-2">
             TCP Inject mode uses wrong_seq packet injection to bypass DPI. Requires administrator privileges.
           </p>
-
-            <label className="mt-10 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-            <div>
-              <div className="font-medium text-text">Auto Reconnect</div>
-              <div className="text-xs text-textMuted">
-                Auto-reconnect on changes
-              </div>
-            </div>
-
-            <Switch
-              checked={coreDraft.autoReconnect}
-              onCheckedChange={(checked) =>
-                void saveProxySettings({
-                  ...coreDraft,
-                  autoReconnect: checked
-                })
-              }
-            />
-          </label>
         </Card>
+        </div>
+
+        <div className="col-span-1">
+          <Card className="flex h-[330px] flex-col rounded-xl">
+            <h3 className="mb-4 text-sm font-semibold">Connection</h3>
+
+            <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+              <div>
+                <div className="font-medium text-text">Full System Tunnel</div>
+                <div className="text-xs text-textMuted">
+                  Routes Windows traffic through sing-box TUN instead of relying only
+                  on app proxy support.
+                </div>
+
+                {coreDraft.proxyScope === "lan" ? (
+                  <div className="mt-1 text-xs text-warning">
+                    Turning this on will disable Proxy Sharing.
+                  </div>
+                ) : null}
+              </div>
+
+              <Switch
+                checked={routingDraft.tunMode}
+                disabled={savingRouting}
+                onCheckedChange={(checked) => {
+                  void saveRoutingSettings({
+                    ...routingDraft,
+                    tunMode: checked,
+                    outboundMode: checked ? "tun" : "proxy",
+                  });
+
+                  if (checked && coreDraft.proxyScope === "lan") {
+                    void saveProxySettings({
+                      ...coreDraft,
+                      proxyScope: "local",
+                    });
+
+                    toast.info(
+                      "Full System Tunnel disabled Proxy Sharing so only one whole-device mode stays active."
+                    );
+                  }
+                }}
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+              <div>
+                <div className="font-medium text-text">Auto Reconnect</div>
+                <div className="text-xs text-textMuted">
+                  Automatically reconnect after configuration changes or temporary
+                  network interruptions.
+                </div>
+              </div>
+
+              <Switch
+                checked={coreDraft.autoReconnect}
+                onCheckedChange={(checked) =>
+                  void saveProxySettings({
+                    ...coreDraft,
+                    autoReconnect: checked,
+                  })
+                }
+              />
+            </label>
+          </Card>
         </div>
       </div>
     </div>
