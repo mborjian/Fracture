@@ -1063,7 +1063,11 @@ def start_profile(
         stdout_path=stdout_path,
         stderr_path=stderr_path,
     )
-    wait_until_port(instance.readiness_host, http_port, timeout=15.0, process=process, instance=instance)
+    try:
+        wait_until_port(instance.readiness_host, http_port, timeout=15.0, process=process, instance=instance)
+    except Exception:
+        stop_instance(instance)
+        raise
     return instance
 
 
@@ -1111,6 +1115,17 @@ def stop_all_warm_instances() -> None:
 
     for entry in entries:
         stop_instance(entry.instance)
+
+
+def cleanup_stale_runtime_artifacts(max_age_seconds: float = 3600.0) -> None:
+    now = time.time()
+    for path in settings.configs_dir.glob("fracture_singbox_*"):
+        if not path.is_dir():
+            continue
+        with contextlib.suppress(Exception):
+            if now - path.stat().st_mtime < max_age_seconds:
+                continue
+            shutil.rmtree(path, ignore_errors=True)
 
 
 def acquire_warm_instance(

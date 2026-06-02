@@ -46,7 +46,8 @@ async def core_start(payload: StartPayload, request: Request) -> dict:
 
     status = await runtime_service.start(runtime, profile_id)
     if status.get("state") != "running" or not status.get("ready", False):
-        raise HTTPException(status_code=500, detail="Failed to start runtime")
+        detail = status.get("lastError") or "Failed to start runtime"
+        raise HTTPException(status_code=500, detail=detail)
     return status
 
 

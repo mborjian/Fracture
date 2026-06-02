@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -9,6 +10,8 @@ from uuid import uuid4
 
 from app.core.config import settings
 from app.db.database import (
+    fetch_core_settings,
+    fetch_selected_cloudflare_listener,
     fetch_profile_by_id,
     fetch_routing_config,
     save_profile_ping_result,
@@ -41,6 +44,9 @@ class ProfilePingService:
         self._lock = asyncio.Lock()
         self._delay_parallelism = 4
         self._speed_parallelism = 3
+        self._probe_bridge_lock = asyncio.Lock()
+        self._probe_bridge_refs = 0
+        self._probe_bridge_server: asyncio.Server | None = None
 
     async def _emit_log(self, level: str, message: str, *, source: str = "ping", trace: str | None = None) -> None:
         now = datetime.now(timezone.utc)
@@ -61,7 +67,10 @@ class ProfilePingService:
             raise ValueError("Profile not found")
 
         routing = await fetch_routing_config()
-        result = await asyncio.to_thread(self._delay_probe_sync, profile, routing, probe_mode)
+        core_settings = await fetch_core_settings()
+        listener = await fetch_selected_cloudflare_listener()
+        async with self._temporary_probe_bridge(core_settings, listener):
+            result = await asyncio.to_thread(self._delay_probe_sync, profile, routing, core_settings, listener, probe_mode)
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_ping_result(
             profile_id,
@@ -143,6 +152,9 @@ class ProfilePingService:
         async with self._lock:
             self._state.cancel_requested = True
         await asyncio.to_thread(stop_all_warm_instances)
+        async with self._probe_bridge_lock:
+            self._probe_bridge_refs = 0
+            await self._stop_probe_bridge_locked()
 
     async def speed_profile(self, profile_id: str, timeout_s: float = 15.0, probe_mode: ProbeMode = "quick") -> dict:
         profile = await fetch_profile_by_id(profile_id)
@@ -150,7 +162,10 @@ class ProfilePingService:
             raise ValueError("Profile not found")
 
         routing = await fetch_routing_config()
-        result = await asyncio.to_thread(self._speed_probe_sync, profile, routing, timeout_s, probe_mode)
+        core_settings = await fetch_core_settings()
+        listener = await fetch_selected_cloudflare_listener()
+        async with self._temporary_probe_bridge(core_settings, listener):
+            result = await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s, probe_mode)
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_speed_result(profile_id, result["speedMBps"], now_iso)
 
@@ -299,11 +314,89 @@ class ProfilePingService:
             "cancelled": cancelled,
         }
 
-    def _delay_probe_sync(self, profile_record: dict, routing: dict, probe_mode: ProbeMode) -> dict:
+    @contextlib.asynccontextmanager
+    async def _temporary_probe_bridge(self, core_settings: dict, listener: dict | None):
+        active_tcp_inject_runtime = (
+            self._runtime_service._status.state == "running"
+            and self._runtime_service.get_runtime_mode() == "tcp-inject"
+            and self._runtime_service._instance is None
+        )
+        should_start = (
+            core_settings.get("transportMode") == "tcp-inject"
+            and not active_tcp_inject_runtime
+        )
+        if not should_start:
+            yield
+            return
+
+        async with self._probe_bridge_lock:
+            if self._probe_bridge_refs == 0:
+                await self._start_probe_bridge_locked(listener)
+            self._probe_bridge_refs += 1
+        try:
+            yield
+        finally:
+            async with self._probe_bridge_lock:
+                self._probe_bridge_refs = max(0, self._probe_bridge_refs - 1)
+                if self._probe_bridge_refs == 0:
+                    await self._stop_probe_bridge_locked()
+
+    async def _start_probe_bridge_locked(self, listener: dict | None) -> None:
+        if listener is None:
+            raise RuntimeError("TCP Inject probes require a selected listener")
+        connect_ip = str(listener.get("CONNECT_IP", "")).strip()
+        connect_port = int(listener.get("CONNECT_PORT", 443))
+        fake_sni = str(listener.get("FAKE_SNI", "")).strip()
+        if not connect_ip:
+            raise RuntimeError("TCP Inject probes require CONNECT_IP in listener")
+        if not fake_sni:
+            raise RuntimeError("TCP Inject probes require FAKE_SNI in listener")
+
+        bridge_host, bridge_port = self._runtime_service._listener_bridge_target(listener) or ("127.0.0.1", 40443)
+        interface_ipv4 = self._runtime_service._resolve_local_device_ip()
+        if not interface_ipv4:
+            raise RuntimeError("TCP Inject probes could not determine a usable local IPv4 address")
+        try:
+            transport_manager.start_injector(
+                interface_ipv4,
+                connect_ip,
+                connect_port,
+                fake_sni.encode(),
+                None,
+                None,
+                bridge_host,
+                False,
+            )
+            self._probe_bridge_server = await asyncio.start_server(
+                transport_manager.handle_bridge_client,
+                bridge_host,
+                bridge_port,
+            )
+        except Exception:
+            await self._stop_probe_bridge_locked()
+            raise
+
+    async def _stop_probe_bridge_locked(self) -> None:
+        server = self._probe_bridge_server
+        self._probe_bridge_server = None
+        if server is not None:
+            server.close()
+            with contextlib.suppress(Exception):
+                await server.wait_closed()
+        transport_manager.stop_injector()
+
+    def _delay_probe_sync(
+        self,
+        profile_record: dict,
+        routing: dict,
+        core_settings: dict,
+        listener: dict | None,
+        probe_mode: ProbeMode,
+    ) -> dict:
         # Check current runtime mode
         mode = self._runtime_service.get_runtime_mode()
         runtime_instance = self._runtime_service._instance
-        if mode == "tcp-inject" and runtime_instance is None:
+        if self._runtime_service._status.state == "running" and mode == "tcp-inject" and runtime_instance is None:
             try:
                 timeout = 3.0 if probe_mode == "quick" else 6.0
                 latency_ms = transport_manager.test_delay_via_socks5(timeout_s=timeout)
@@ -315,15 +408,24 @@ class ProfilePingService:
         if not binary_path.exists():
             return {"ok": False, "latencyMs": None, "error": f"sing-box binary not found at {binary_path}"}
         try:
-            latency_ms = test_delay(record_to_profile(profile_record), binary_path, routing=routing, mode=probe_mode)
+            profile = self._probe_profile_for_transport(profile_record, routing, core_settings, listener)
+            latency_ms = test_delay(profile, binary_path, routing=routing, mode=probe_mode)
             return {"ok": True, "latencyMs": max(1, int(latency_ms))}
         except Exception as exc:
             return {"ok": False, "latencyMs": -1, "error": str(exc)}
 
-    def _speed_probe_sync(self, profile_record: dict, routing: dict, timeout_s: float, probe_mode: ProbeMode) -> dict:
+    def _speed_probe_sync(
+        self,
+        profile_record: dict,
+        routing: dict,
+        core_settings: dict,
+        listener: dict | None,
+        timeout_s: float,
+        probe_mode: ProbeMode,
+    ) -> dict:
         mode = self._runtime_service.get_runtime_mode()
         runtime_instance = self._runtime_service._instance
-        if mode == "tcp-inject" and runtime_instance is None:
+        if self._runtime_service._status.state == "running" and mode == "tcp-inject" and runtime_instance is None:
             try:
                 bytes_per_sec = transport_manager.test_speed_via_socks5(timeout_s=timeout_s)
                 return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
@@ -335,8 +437,9 @@ class ProfilePingService:
             return {"ok": False, "speedMBps": None, "error": f"sing-box binary not found at {binary_path}"}
         try:
             effective_seconds = min(timeout_s, 4.0) if probe_mode == "quick" else min(timeout_s, 10.0)
+            profile = self._probe_profile_for_transport(profile_record, routing, core_settings, listener)
             bytes_per_sec = test_speed(
-                record_to_profile(profile_record),
+                profile,
                 binary_path,
                 routing=routing,
                 seconds=max(0.8 if probe_mode == "quick" else 2.0, effective_seconds),
@@ -345,3 +448,18 @@ class ProfilePingService:
             return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
         except Exception as exc:
             return {"ok": False, "speedMBps": None, "error": str(exc)}
+
+    def _probe_profile_for_transport(
+        self,
+        profile_record: dict,
+        routing: dict,
+        core_settings: dict,
+        listener: dict | None,
+    ):
+        profile = record_to_profile(profile_record)
+        if core_settings.get("transportMode") != "tcp-inject":
+            return profile
+        rewritten = self._runtime_service._rewrite_profile_for_bridge(profile, listener)
+        if listener is not None:
+            routing["connectIpException"] = str(listener.get("CONNECT_IP", "")).strip()
+        return rewritten

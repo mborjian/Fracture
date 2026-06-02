@@ -30,7 +30,9 @@ from app.services.singbox import (
     Profile,
     RunningInstance,
     make_proxy_opener,
+    pick_free_port,
     record_to_profile,
+    cleanup_stale_runtime_artifacts,
     start_profile,
     stop_all_warm_instances,
     stop_instance,
@@ -154,6 +156,8 @@ class CoreRuntimeService:
             await self._emit_log_locked("info", f"starting runtime={runtime} profile={profile_id or 'auto'}")
 
             try:
+                await asyncio.to_thread(stop_all_warm_instances)
+                await asyncio.to_thread(cleanup_stale_runtime_artifacts, 0.0)
                 await self._spawn_runtime_locked()
                 await self._apply_system_proxy_locked()
                 self._status.state = "running"
@@ -257,6 +261,8 @@ class CoreRuntimeService:
             return None
         listen_host = str(listener.get("LISTEN_HOST", "127.0.0.1")).strip() or "127.0.0.1"
         listen_port = int(listener.get("LISTEN_PORT", 40443))
+        if listen_port <= 0 or listen_port > 65535:
+            raise RuntimeError("TCP Inject mode requires a valid LISTEN_PORT")
         connect_host = "127.0.0.1" if listen_host == "0.0.0.0" else listen_host
         return connect_host, listen_port
 
@@ -275,7 +281,7 @@ class CoreRuntimeService:
             username=profile.username,
             tls=profile.tls,
             network=profile.network,
-            sni=profile.sni,
+            sni=profile.sni or profile.server,
             alpn=list(profile.alpn),
             allow_insecure=profile.allow_insecure,
             fingerprint=profile.fingerprint,
@@ -285,6 +291,18 @@ class CoreRuntimeService:
             remark=profile.remark,
             extras=dict(profile.extras),
         )
+
+    async def _claim_runtime_port_locked(self, host: str, preferred: int, label: str) -> int:
+        if preferred <= 0 or preferred > 65535:
+            raise RuntimeError(f"{label} port is outside the valid range")
+        if await asyncio.to_thread(self._can_bind_tcp, host, preferred):
+            return preferred
+        replacement = await asyncio.to_thread(pick_free_port)
+        await self._emit_log_locked(
+            "warning",
+            f"{label} port {preferred} is busy; using free port {replacement}",
+        )
+        return replacement
 
     async def _spawn_runtime_locked(self) -> None:
         profile_id = self._status.active_profile_id
@@ -311,10 +329,20 @@ class CoreRuntimeService:
             raise RuntimeError(f"sing-box binary not found at {binary_path}")
 
         mode = "tun" if bool(routing.get("tunMode", False)) else "proxy"
-        http_port = int(core_settings.get("proxyPort", 2080))
-        socks_port = int(core_settings.get("socksPort", 2081))
+        if mode == "tun" and not self._has_admin_privileges():
+            raise RuntimeError(
+                "TUN mode requires Administrator privileges on Windows. "
+                "Please restart Fracture as Administrator or switch to proxy mode."
+            )
         listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
+        readiness_host = "127.0.0.1" if listen_host == "0.0.0.0" else listen_host
+        http_port = await self._claim_runtime_port_locked(readiness_host, int(core_settings.get("proxyPort", 2080)), "HTTP proxy")
+        socks_port = await self._claim_runtime_port_locked(readiness_host, int(core_settings.get("socksPort", 2081)), "SOCKS proxy")
+        if socks_port == http_port:
+            socks_port = await self._claim_runtime_port_locked(readiness_host, pick_free_port(), "SOCKS proxy")
         self._status.listen_host = listen_host
+        self._status.http_port = http_port
+        self._status.socks_port = socks_port
         self._status.tun_mode = mode == "tun"
         self._status.network_mode = mode
         runtime_profile = profile
@@ -361,29 +389,35 @@ class CoreRuntimeService:
         connect_ip = str((listener or {}).get("CONNECT_IP", "")).strip()
         connect_port = int((listener or {}).get("CONNECT_PORT", profile.port))
         fake_sni = str((listener or {}).get("FAKE_SNI", "")).strip()
-        bridge_host = str(listener.get("LISTEN_HOST", "127.0.0.1")).strip() or "127.0.0.1"
-        bridge_port = int(listener.get("LISTEN_PORT", 40443))
+        bridge_host, bridge_port = self._listener_bridge_target(listener) or ("127.0.0.1", 40443)
         if not connect_ip:
             raise RuntimeError("TCP Inject mode requires CONNECT_IP in listener")
         if not fake_sni:
             raise RuntimeError("TCP Inject mode requires FAKE_SNI in listener")
 
-        interface_ipv4 = self._resolve_local_device_ip() or "0.0.0.0"
-        transport_manager.start_injector(
-            interface_ipv4,
-            connect_ip,
-            connect_port,
-            fake_sni.encode(),
-            None,
-            None,
-            bridge_host,
-            False,
-        )
-        self._bridge_server = await asyncio.start_server(
-            transport_manager.handle_bridge_client,
-            bridge_host,
-            bridge_port,
-        )
+        interface_ipv4 = self._resolve_local_device_ip()
+        if not interface_ipv4:
+            raise RuntimeError("TCP Inject mode could not determine a usable local IPv4 address")
+        try:
+            transport_manager.start_injector(
+                interface_ipv4,
+                connect_ip,
+                connect_port,
+                fake_sni.encode(),
+                None,
+                None,
+                bridge_host,
+                False,
+            )
+            self._bridge_server = await asyncio.start_server(
+                transport_manager.handle_bridge_client,
+                bridge_host,
+                bridge_port,
+            )
+        except Exception:
+            await self._stop_bridge_locked()
+            transport_manager.stop_injector()
+            raise
         target_label = f"{connect_ip}:{connect_port}"
         await self._emit_log_locked(
             "debug",
@@ -439,11 +473,21 @@ class CoreRuntimeService:
     async def _apply_system_proxy_locked(self) -> None:
         core_settings = await fetch_core_settings()
         routing = await fetch_routing_config()
+        if bool(routing.get("tunMode", False)):
+            await self._restore_system_proxy_locked()
+            await self._emit_log_locked("debug", "system proxy skipped while TUN mode is active")
+            return
         bypass = self._system_proxy_bypass(routing)
         try:
             if self._saved_system_proxy_state is None:
                 self._saved_system_proxy_state = await asyncio.to_thread(get_system_proxy_state)
-            await asyncio.to_thread(enable_system_proxy, "127.0.0.1", int(core_settings.get("proxyPort", 2080)), bypass)
+            await asyncio.to_thread(
+                enable_system_proxy,
+                "127.0.0.1",
+                self._status.http_port,
+                bypass,
+                self._status.socks_port,
+            )
         except Exception as exc:  # noqa: BLE001
             saved_state = self._saved_system_proxy_state
             self._saved_system_proxy_state = None
@@ -641,6 +685,19 @@ class CoreRuntimeService:
         try:
             return sock.connect_ex((host, port)) == 0
         except Exception:
+            return False
+        finally:
+            with contextlib.suppress(Exception):
+                sock.close()
+
+    @staticmethod
+    def _can_bind_tcp(host: str, port: int) -> bool:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        try:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.bind((host, port))
+            return True
+        except OSError:
             return False
         finally:
             with contextlib.suppress(Exception):

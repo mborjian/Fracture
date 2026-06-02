@@ -30,7 +30,13 @@ def _ensure_windows() -> None:
         raise RuntimeError("System proxy control is currently supported only on Windows")
 
 
-def enable_system_proxy(host: str, port: int, bypass: str) -> dict:
+def _format_proxy_server(host: str, http_port: int, socks_port: int | None = None) -> str:
+    if socks_port is None:
+        return f"{host}:{http_port}"
+    return f"http={host}:{http_port};https={host}:{http_port};socks={host}:{socks_port}"
+
+
+def enable_system_proxy(host: str, port: int, bypass: str, socks_port: int | None = None) -> dict:
     _ensure_windows()
     proxy_server = f"{host}:{port}"
     with winreg.OpenKey(
@@ -44,7 +50,7 @@ def enable_system_proxy(host: str, port: int, bypass: str) -> dict:
         winreg.SetValueEx(key, "ProxyOverride", 0, winreg.REG_SZ, bypass)
 
     _notify_internet_settings()
-    return {"enabled": True, "host": host, "port": port, "bypass": bypass}
+    return {"enabled": True, "host": host, "port": port, "socksPort": socks_port, "bypass": bypass}
 
 
 def restore_system_proxy_state(state: dict[str, Any]) -> dict:
