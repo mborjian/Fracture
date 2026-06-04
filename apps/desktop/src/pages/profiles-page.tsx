@@ -1,4 +1,4 @@
-import { ArrowUpDown, Gauge, Import, Loader2, TimerReset, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Gauge, GripVertical, Import, Loader2, TimerReset, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Sortable, SortableContent, SortableItem, SortableItemHandle } from "@/components/ui/sortable";
 import { useProfilesQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -48,6 +49,7 @@ export function ProfilesPage() {
   const [pingAllRunning, setPingAllRunning] = useState(false);
   const [speedAllRunning, setSpeedAllRunning] = useState(false);
   const [sortBusy, setSortBusy] = useState(false);
+  const [reorderBusy, setReorderBusy] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const [menuBusy, setMenuBusy] = useState(false);
   const [renaming, setRenaming] = useState<Profile | null>(null);
@@ -399,6 +401,19 @@ export function ProfilesPage() {
 
   const sortButtonClass = "h-7 rounded-full px-2.5 text-[11px]";
 
+  const persistOrder = async (profiles: Profile[]) => {
+    setReorderBusy(true);
+    try {
+      await api.reorderProfiles(profiles.map((profile) => profile.id));
+      await refreshProfiles();
+    } catch (error) {
+      setOrderedProfiles(data);
+      toast.error((error as Error).message);
+    } finally {
+      setReorderBusy(false);
+    }
+  };
+
   const closeImportPanel = () => {
     setShowImport(false);
     setImportDragActive(false);
@@ -511,10 +526,16 @@ export function ProfilesPage() {
         </div>
       ) : null}
 
-      <div className="space-y-3">
-        {rows.map((row, rowIndex) => (
-          <div key={rowIndex} className="grid grid-cols-2 gap-3">
-            {row.map((profile) => {
+      <Sortable
+        value={orderedProfiles}
+        getItemValue={(profile) => profile.id}
+        onValueChange={setOrderedProfiles}
+        onMove={(profiles) => void persistOrder(profiles)}
+      >
+        <SortableContent className={cn("space-y-3", reorderBusy ? "pointer-events-none opacity-90" : "")}>
+          {rows.map((row, rowIndex) => (
+            <div key={rowIndex} className="grid grid-cols-2 gap-3">
+              {row.map((profile) => {
               const active = activeProfileId === profile.id;
               const pingDisplay = testingPingIds.has(profile.id)
                 ? "--"
@@ -534,48 +555,56 @@ export function ProfilesPage() {
               const profileType = String(profile.protocol ?? "unknown").toUpperCase();
 
               return (
-                <Card
-                  key={profile.id}
-                  className={cn(
-                    "w-full rounded-xl p-3 transition-all",
-                    active
-                      ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
-                      : ""
-                  )}
-                  onClick={() => void handleSelectActive(profile.id)}
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    event.stopPropagation();
-                    setContextMenu({
-                      x: event.clientX,
-                      y: event.clientY,
-                      profile
-                    });
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <span className={typeBadgeClass}>{profileType}</span>
-                    <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-semibold">{profile.name}</div>
-                      <div className="truncate text-xs text-textMuted">
-                        {String(profile.server ?? "")}:{String(profile.port ?? "")}
+                <SortableItem key={profile.id} value={profile}>
+                  <Card
+                    className={cn(
+                      "w-full rounded-xl p-3 transition-all",
+                      active
+                        ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
+                        : ""
+                    )}
+                    onClick={() => void handleSelectActive(profile.id)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextMenu({
+                        x: event.clientX,
+                        y: event.clientY,
+                        profile
+                      });
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <SortableItemHandle
+                        aria-label={`Drag ${profile.name}`}
+                        className="h-7 w-7 shrink-0 text-textMuted/70 hover:bg-panelAlt hover:text-text"
+                      >
+                        <GripVertical className="h-4 w-4" />
+                      </SortableItemHandle>
+                      <span className={typeBadgeClass}>{profileType}</span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm font-semibold">{profile.name}</div>
+                        <div className="truncate text-xs text-textMuted">
+                          {String(profile.server ?? "")}:{String(profile.port ?? "")}
+                        </div>
                       </div>
+                      <span className={metricBadgeClass}>
+                        <span className={pingDanger ? "text-danger" : ""}>{pingDisplay}</span>
+                        <span className="text-[10px] text-textMuted/90">ms</span>
+                      </span>
+                      <span className={metricBadgeClass}>
+                        <span>{speedDisplay}</span>
+                        <span className="text-[10px] text-textMuted/90">MB/s</span>
+                      </span>
                     </div>
-                    <span className={metricBadgeClass}>
-                      <span className={pingDanger ? "text-danger" : ""}>{pingDisplay}</span>
-                      <span className="text-[10px] text-textMuted/90">ms</span>
-                    </span>
-                    <span className={metricBadgeClass}>
-                      <span>{speedDisplay}</span>
-                      <span className="text-[10px] text-textMuted/90">MB/s</span>
-                    </span>
-                  </div>
-                </Card>
+                  </Card>
+                </SortableItem>
               );
-            })}
-          </div>
-        ))}
-      </div>
+              })}
+            </div>
+          ))}
+        </SortableContent>
+      </Sortable>
 
       {contextMenu ? createPortal(
         <div
