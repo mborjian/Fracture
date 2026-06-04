@@ -567,7 +567,7 @@ export function SettingsPage() {
                   }
                 />
               </label>
-            
+
             <h3 className="text-sm font-semibold mb-4 mt-5">General</h3>
 
             <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
