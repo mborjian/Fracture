@@ -31,13 +31,6 @@ const CONTEXT_MENU_WIDTH = 180;
 const CONTEXT_MENU_HEIGHT = 234;
 const VIEWPORT_PADDING = 8;
 
-function moveItem<T>(items: T[], from: number, to: number): T[] {
-  const next = [...items];
-  const [item] = next.splice(from, 1);
-  next.splice(to, 0, item);
-  return next;
-}
-
 function clampToViewport(value: number, size: number, viewportSize: number) {
   return Math.max(VIEWPORT_PADDING, Math.min(value, viewportSize - size - VIEWPORT_PADDING));
 }
@@ -59,8 +52,6 @@ export function ProfilesPage() {
   const [menuBusy, setMenuBusy] = useState(false);
   const [renaming, setRenaming] = useState<Profile | null>(null);
   const [renameValue, setRenameValue] = useState("");
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dropIndex, setDropIndex] = useState<number | null>(null);
   const [testingPingIds, setTestingPingIds] = useState<Set<string>>(new Set());
   const [testingSpeedIds, setTestingSpeedIds] = useState<Set<string>>(new Set());
   const [pingOverrides, setPingOverrides] = useState<MetricOverrides>({});
@@ -315,16 +306,6 @@ export function ProfilesPage() {
     }
   };
 
-  const saveOrder = async (nextOrder: Profile[]) => {
-    try {
-      await api.reorderProfiles(nextOrder.map((item) => item.id));
-      queryClient.setQueryData(["profiles"], nextOrder);
-    } catch (error) {
-      toast.error((error as Error).message);
-      setOrderedProfiles(data);
-    }
-  };
-
   const startRename = (profile: Profile) => {
     setContextMenu(null);
     setRenaming(profile);
@@ -399,31 +380,13 @@ export function ProfilesPage() {
     }
   };
 
-  const handleDropAtIndex = async (targetIndex: number) => {
-    if (!draggingId) return;
-    const fromIndex = orderedProfiles.findIndex((item) => item.id === draggingId);
-    if (fromIndex < 0) return;
-    const normalizedIndex = targetIndex > fromIndex ? targetIndex - 1 : targetIndex;
-    if (normalizedIndex === fromIndex) {
-      setDraggingId(null);
-      setDropIndex(null);
-      return;
+  const rows = useMemo(() => {
+    const result: Profile[][] = [];
+    for (let i = 0; i < orderedProfiles.length; i += 2) {
+      result.push(orderedProfiles.slice(i, i + 2));
     }
-    const next = moveItem(orderedProfiles, fromIndex, normalizedIndex);
-    setOrderedProfiles(next);
-    setDraggingId(null);
-    setDropIndex(null);
-    await saveOrder(next);
-  };
-
-  const handleProfileDragOver = (event: DragEvent<HTMLElement>, index: number) => {
-    if (!draggingId) return;
-    event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
-    const bounds = event.currentTarget.getBoundingClientRect();
-    const targetIndex = event.clientY > bounds.top + bounds.height / 2 ? index + 1 : index;
-    setDropIndex(targetIndex);
-  };
+    return result;
+  }, [orderedProfiles]);
 
   const metricBadgeClass = useMemo(
     () =>
@@ -548,118 +511,70 @@ export function ProfilesPage() {
         </div>
       ) : null}
 
-      <div className="space-y-2">
-        {orderedProfiles.map((profile, index) => {
-          const active = activeProfileId === profile.id;
-          const pingDisplay = testingPingIds.has(profile.id)
-            ? "--"
-            : typeof pingOverrides[profile.id] === "number"
-              ? String(pingOverrides[profile.id])
-              : typeof profile.lastPingMs === "number"
-                ? String(profile.lastPingMs)
-                : "--";
-          const speedDisplay = testingSpeedIds.has(profile.id)
-            ? "--"
-            : typeof speedOverrides[profile.id] === "number"
-              ? Number(speedOverrides[profile.id]).toFixed(2)
-              : typeof profile.lastSpeedMbps === "number"
-                ? profile.lastSpeedMbps.toFixed(2)
-                : "--";
-          const pingDanger = pingDisplay === "-1";
-          const profileType = String(profile.protocol ?? "unknown").toUpperCase();
-          return (
-            <div key={profile.id}>
-              <div
-                className={cn(
-                  "h-2 rounded-full transition-colors",
-                  dropIndex === index ? "bg-accent/70" : "bg-transparent"
-                )}
-                onDragOver={(event) => {
-                  event.preventDefault();
-                  if (draggingId) {
-                    setDropIndex(index);
-                  }
-                }}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void handleDropAtIndex(index);
-                }}
-              />
-              <Card
-                draggable
-                onDragStart={(event) => {
-                  setDraggingId(profile.id);
-                  setDropIndex(index);
-                  event.dataTransfer.effectAllowed = "move";
-                  event.dataTransfer.setData("text/plain", profile.id);
-                }}
-                onDragEnd={() => {
-                  setDraggingId(null);
-                  setDropIndex(null);
-                }}
-                onDragOver={(event) => handleProfileDragOver(event, index)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  void handleDropAtIndex(dropIndex ?? index);
-                }}
-                className={cn(
-                  "w-full rounded-xl cursor-move p-3 transition-all",
-                  active
-                    ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
-                    : "",
-                  draggingId === profile.id ? "opacity-80" : ""
-                )}
-                onClick={() => void handleSelectActive(profile.id)}
-                onContextMenu={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  setContextMenu({
-                    x: event.clientX,
-                    y: event.clientY,
-                    profile
-                  });
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <span className={typeBadgeClass}>{profileType}</span>
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-sm font-semibold">{profile.name}</div>
-                    <div className="truncate text-xs text-textMuted">
-                      {String(profile.server ?? "")}:{String(profile.port ?? "")}
+      <div className="space-y-3">
+        {rows.map((row, rowIndex) => (
+          <div key={rowIndex} className="grid grid-cols-2 gap-3">
+            {row.map((profile) => {
+              const active = activeProfileId === profile.id;
+              const pingDisplay = testingPingIds.has(profile.id)
+                ? "--"
+                : typeof pingOverrides[profile.id] === "number"
+                  ? String(pingOverrides[profile.id])
+                  : typeof profile.lastPingMs === "number"
+                    ? String(profile.lastPingMs)
+                    : "--";
+              const speedDisplay = testingSpeedIds.has(profile.id)
+                ? "--"
+                : typeof speedOverrides[profile.id] === "number"
+                  ? Number(speedOverrides[profile.id]).toFixed(2)
+                  : typeof profile.lastSpeedMbps === "number"
+                    ? profile.lastSpeedMbps.toFixed(2)
+                    : "--";
+              const pingDanger = pingDisplay === "-1";
+              const profileType = String(profile.protocol ?? "unknown").toUpperCase();
+
+              return (
+                <Card
+                  key={profile.id}
+                  className={cn(
+                    "w-full rounded-xl p-3 transition-all",
+                    active
+                      ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
+                      : ""
+                  )}
+                  onClick={() => void handleSelectActive(profile.id)}
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setContextMenu({
+                      x: event.clientX,
+                      y: event.clientY,
+                      profile
+                    });
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className={typeBadgeClass}>{profileType}</span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-sm font-semibold">{profile.name}</div>
+                      <div className="truncate text-xs text-textMuted">
+                        {String(profile.server ?? "")}:{String(profile.port ?? "")}
+                      </div>
                     </div>
+                    <span className={metricBadgeClass}>
+                      <span className={pingDanger ? "text-danger" : ""}>{pingDisplay}</span>
+                      <span className="text-[10px] text-textMuted/90">ms</span>
+                    </span>
+                    <span className={metricBadgeClass}>
+                      <span>{speedDisplay}</span>
+                      <span className="text-[10px] text-textMuted/90">MB/s</span>
+                    </span>
                   </div>
-                  <span className={metricBadgeClass}>
-                    <span className={pingDanger ? "text-danger" : ""}>{pingDisplay}</span>
-                    <span className="text-[10px] text-textMuted/90">ms</span>
-                  </span>
-                  <span className={metricBadgeClass}>
-                    <span>{speedDisplay}</span>
-                    <span className="text-[10px] text-textMuted/90">MB/s</span>
-                  </span>
-                </div>
-              </Card>
-            </div>
-          );
-        })}
-        <div
-          className={cn(
-            "h-2 rounded-full transition-colors",
-            dropIndex === orderedProfiles.length ? "bg-accent/70" : "bg-transparent"
-          )}
-          onDragOver={(event) => {
-            event.preventDefault();
-            if (draggingId) {
-              setDropIndex(orderedProfiles.length);
-            }
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            void handleDropAtIndex(orderedProfiles.length);
-          }}
-        />
+                </Card>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       {contextMenu ? createPortal(

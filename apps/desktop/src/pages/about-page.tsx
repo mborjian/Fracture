@@ -1,4 +1,4 @@
-import { Bug, Copy, GitFork, Heart, QrCode, Star, X } from "lucide-react";
+import { BrickWall, Bug, Copy, GitFork, Handshake, Heart, QrCode, Star, X } from "lucide-react";
 import { SiGithub, SiSolana, SiTether, SiTon } from '@icons-pack/react-simple-icons';
 import { invoke } from "@tauri-apps/api/core";
 import { useState } from "react";
@@ -79,7 +79,10 @@ export function AboutPage() {
     <>
       <div className="mt-4 space-y-3">
         <Card className="rounded-xl border border-border bg-panelAlt p-4 flex flex-col gap-3">
-          <div className="text-sm font-semibold">About</div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <BrickWall className="h-4 w-4 text-blue-500" />
+            <span>About</span>
+          </div>
           <div className="text-sm text-textMuted">
             Fracture is a simple desktop control center for managing sing-box profiles, switching connections quickly, and keeping your local proxy setup easy to understand.
           </div>
@@ -161,7 +164,10 @@ export function AboutPage() {
         </Card>
 
         <Card className="rounded-xl border border-border bg-panelAlt p-4 flex flex-col gap-3">
-          <div className="text-sm font-semibold">Thanks</div>
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Handshake className="h-4 w-4 text-emerald-500" />
+            <span>Thanks</span>
+          </div>
           <div className="text-sm text-textMuted">
             Fracture stands on top of thoughtful open-source work. These projects helped shape the ideas, techniques, and building blocks behind the app.
           </div>
@@ -197,7 +203,7 @@ export function AboutPage() {
 
         <Card className="rounded-xl border border-border bg-panelAlt p-4 flex flex-col gap-3">
           <div className="flex items-center gap-2 text-sm font-semibold">
-            <Heart className="h-4 w-4 fill-danger text-danger" />
+            <Heart className="h-4 w-4 text-red-500" />
             <span>Support Fracture</span>
           </div>
           <div className="text-sm text-textMuted">

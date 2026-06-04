@@ -96,7 +96,7 @@ export function LogsPage() {
                   {line.level}
                 </span>
                 {showDevelopmentLogs ? (
-                  <span className="inline-flex max-w-full items-center justify-center rounded-full border border-border/70 bg-panel px-2 py-0.5 text-[10px] uppercase tracking-wide text-textMuted">
+                  <span className="inline-flex h-5 max-w-full items-center justify-center rounded-full border border-border/70 bg-panel px-2 py-0.5 text-[10px] uppercase tracking-wide text-textMuted shrink-0 align-top">
                     {line.source ?? "ui"}
                   </span>
                 ) : null}

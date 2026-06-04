@@ -12,6 +12,7 @@ import { useCloudflareConfigQuery, useCoreSettingsQuery, useRoutingConfigQuery, 
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { CloudflareConfig, CloudflareListener, CoreSettings, RoutingConfig, UiSettings } from "@/types";
+import {InputGroup, InputGroupAddon, InputGroupInput, InputGroupText} from "@/components/ui/input-group.tsx";
 
 const DEFAULT_CORE: CoreSettings = {
   proxyScope: "local",
@@ -331,123 +332,53 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div className="col-span-2">
-          <Card className="h-[330px] rounded-xl">
-          <h3 className="text-sm font-semibold mb-3">Appearance</h3>
-
-          <ToggleGroup type="single" className="mx-auto w-[270px] mb-3" value={uiDraft.theme}
-                       onValueChange={(value) => {
-                         if (value) { void changeTheme(value as "light" | "dark" | "system"); }
-                       }}
-          >
-            <ToggleGroupItem value="light">Light</ToggleGroupItem>
-            <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
-            <ToggleGroupItem value="system">System</ToggleGroupItem>
-          </ToggleGroup>
-
-          <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
-            <div>
-              <div className="font-medium">Start with Windows</div>
-              <div className="text-xs text-textMuted">
-                Launch Fracture automatically when you sign in.
-              </div>
-            </div>
-
-            <Switch
-              checked={uiDraft.runOnStartup}
-              onCheckedChange={(checked) =>
-                void updateUiSettings({
-                  runOnStartup: checked
-                })
-              }
-            />
-          </label>
-
-          <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-            <div>
-              <div className="font-medium">Close To Tray</div>
-              <div className="text-xs text-textMuted">
-                When enabled, closing the window hides Fracture to the system tray.
-              </div>
-            </div>
-
-            <Switch
-              checked={uiDraft.closeToTray}
-              onCheckedChange={(checked) =>
-                void updateUiSettings({
-                  closeToTray: checked
-                })
-              }
-            />
-          </label>
-
-          <label className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-            <div>
-              <div className="font-medium">Show Development Logs</div>
-              <div className="text-xs text-textMuted">
-                Show verbose debug entries in the Logs tab.
-              </div>
-            </div>
-
-            <Switch
-              checked={uiDraft.showDevelopmentLogs}
-              onCheckedChange={(checked) =>
-                void updateUiSettings({
-                  showDevelopmentLogs: checked
-                })
-              }
-            />
-          </label>
-        </Card>
-        </div>
-
+      <div className="grid grid-cols-2 gap-4 grid-rows-1">
         <div className="col-span-1">
-          <Card className="flex h-[340px] flex-col rounded-xl">
-          <h3 className="mb-3 text-sm font-semibold">Cloudflare Listener</h3>
-          <div className="mb-3 flex items-center gap-2">
-            <div ref={listenerMenuRef} className="relative min-w-0 flex-1">
-              <button
-                type="button"
-                onClick={() => setListenerOpen((prev) => !prev)}
-                className="flex h-9 w-full items-center justify-between rounded-xl border border-border bg-panelAlt px-3 text-left"
-              >
-                <div className="min-w-0">
-                  <div className="truncate text-sm">{selectedMeta.title} <span className="text-[12px] text-textMuted">({selectedMeta.subtitle})</span></div>
-                </div>
-                <ChevronDown className={cn("ml-2 h-4 w-4 shrink-0 transition-transform", listenerOpen ? "rotate-180" : "")} />
-              </button>
-              {listenerOpen ? (
-                <div className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-auto rounded-xl border border-border bg-panel shadow-soft">
-                  {cloudflareDraft.listeners.map((listener) => {
-                    const meta = formatListenerLabel(listener);
-                    const active = listener.id === cloudflareDraft.selectedId;
-                    return (
-                      <button
-                        key={listener.id}
-                        type="button"
-                        onClick={() => void selectListener(listener.id)}
-                        className={cn(
-                          "flex h-9 w-full items-center justify-between px-3 text-left hover:bg-panelAlt",
-                          active ? "bg-panelAlt" : ""
-                        )}
-                      >
-                        <div className="min-w-0">
-                          <div className="truncate text-sm">{meta.title} <span className="text-[12px] text-textMuted">({meta.subtitle})</span></div>
-                        </div>
-                        {active ? <Check className="ml-2 h-4 w-4 shrink-0 text-accent" /> : null}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
+          <Card className="rounded-xl h-full">
+            <h3 className="text-sm font-semibold mb-4">Cloudflare Listener</h3>
+            <div className="flex items-center gap-2 mb-3">
+              <div ref={listenerMenuRef} className="relative min-w-0 flex-1">
+                <button
+                  type="button"
+                  onClick={() => setListenerOpen((prev) => !prev)}
+                  className="flex h-9 w-full items-center justify-between rounded-xl border border-border bg-panelAlt px-3 text-left"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-sm">{selectedMeta.title} <span className="text-[12px] text-textMuted">({selectedMeta.subtitle})</span></div>
+                  </div>
+                  <ChevronDown className={cn("ml-2 h-4 w-4 shrink-0 transition-transform", listenerOpen ? "rotate-180" : "")} />
+                </button>
+                {listenerOpen ? (
+                  <div className="absolute left-0 right-0 top-11 z-20 max-h-56 overflow-auto rounded-xl border border-border bg-panel shadow-soft">
+                    {cloudflareDraft.listeners.map((listener) => {
+                      const meta = formatListenerLabel(listener);
+                      const active = listener.id === cloudflareDraft.selectedId;
+                      return (
+                        <button
+                          key={listener.id}
+                          type="button"
+                          onClick={() => void selectListener(listener.id)}
+                          className={cn(
+                            "flex h-9 w-full items-center justify-between px-3 text-left hover:bg-panelAlt",
+                            active ? "bg-panelAlt" : ""
+                          )}
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm">{meta.title} <span className="text-[12px] text-textMuted">({meta.subtitle})</span></div>
+                          </div>
+                          {active ? <Check className="ml-2 h-4 w-4 shrink-0 text-accent" /> : null}
+                        </button>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+              <Button variant="secondary" size="sm" className="h-9 w-9 rounded-xl px-0" onClick={() => void addListener()} title="Add listener">
+                <Plus className="h-4 w-4" />
+              </Button>
             </div>
-            <Button variant="secondary" size="sm" className="h-9 w-9 rounded-xl px-0" onClick={() => void addListener()} title="Add listener">
-              <Plus className="h-4 w-4" />
-            </Button>
-          </div>
 
-            <div className="grid gap-3 mt-3">
+            <div className="grid grid-cols-2 gap-4">
               <label className="space-y-1 text-sm">
                 <div className="text-xs text-textMuted">Connect IP</div>
                 <Input
@@ -466,7 +397,7 @@ export function SettingsPage() {
                   spellCheck={false}
                 />
               </label>
-              <div className="flex items-center justify-end gap-2 pt-1">
+              <div className="flex items-center justify-end gap-2 pt-1 col-span-2 min-h-[36px]">
                 {cloudflareDraft.listeners.length > 1 ? (
                   <Button
                     size="sm"
@@ -491,119 +422,38 @@ export function SettingsPage() {
                 ) : null}
               </div>
             </div>
-        </Card>
+          </Card>
         </div>
 
         <div className="col-span-1">
-          <Card className="flex h-[340px] flex-col rounded-xl">
-  <h3 className="mb-4 text-sm font-semibold">Network Mode</h3>
-
-  <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
-    <div>
-      <div className="font-medium">Proxy Sharing</div>
-      <div className="text-xs text-textMuted">
-        Allow other devices on your network to use Fracture.
-      </div>
-    </div>
-
-    <Switch
-      checked={coreDraft.proxyScope === "lan"}
-      onCheckedChange={(checked) => {
-        const nextScope = checked ? "lan" : "local";
-
-        void saveProxySettings({
-          ...coreDraft,
-          proxyScope: nextScope,
-        });
-
-        if (checked && routingDraft.tunMode) {
-          void saveRoutingSettings({
-            ...routingDraft,
-            tunMode: false,
-            outboundMode: "proxy",
-          });
-
-          toast.info(
-            "Proxy Sharing turned off Full System Tunnel so only one whole-device mode stays active."
-          );
-        }
-      }}
-    />
-  </label>
-
-  {coreDraft.proxyScope === "lan" && (
-    <div className="grid grid-cols-2 gap-3">
-      <label className="space-y-1 text-sm">
-        <div className="text-xs text-textMuted">HTTP</div>
-        <Input
-          type="number"
-          value={coreDraft.proxyPort}
-          onChange={(e) =>
-            void saveProxySettings({
-              ...coreDraft,
-              proxyPort: Number(e.target.value) || 0,
-            })
-          }
-          placeholder="HTTP"
-        />
-      </label>
-
-      <label className="space-y-1 text-sm">
-        <div className="text-xs text-textMuted">SOCKS</div>
-        <Input
-          type="number"
-          value={coreDraft.socksPort}
-          onChange={(e) =>
-            void saveProxySettings({
-              ...coreDraft,
-              socksPort: Number(e.target.value) || 0,
-            })
-          }
-          placeholder="SOCKS"
-        />
-      </label>
-    </div>
-  )}
-</Card>
+          <Card className="rounded-xl h-full">
+            <h3 className="text-sm font-semibold mb-4">Transport Mode</h3>
+            <ToggleGroup type="single" orientation="vertical" className="mx-auto w-[270px] mb-3"
+              value={coreDraft.transportMode || "tcp-inject"}
+              onValueChange={(value) => {
+                if (value) void saveProxySettings({ ...coreDraft, transportMode: value as "singbox" | "tcp-inject" });
+              }}
+            >
+              <ToggleGroupItem value="singbox" className="p-3">Standard (sing‑box)</ToggleGroupItem>
+              <ToggleGroupItem value="tcp-inject" className="p-3">TCP Inject (Fake TLS)</ToggleGroupItem>
+            </ToggleGroup>
+            <p className="text-xs text-textMuted mt-2">
+              TCP Inject mode uses wrong_seq packet injection to bypass DPI. Requires administrator privileges.
+            </p>
+          </Card>
         </div>
 
-        <div className="col-span-1">
-          <Card className="flex h-[330px] flex-col rounded-xl">
-          <h3 className="mb-4 text-sm font-semibold">Transport Mode</h3>
-          <ToggleGroup
-            type="single"
-            value={coreDraft.transportMode || "tcp-inject"}
-            onValueChange={(value) => {
-              if (value) void saveProxySettings({ ...coreDraft, transportMode: value as "singbox" | "tcp-inject" });
-            }}
-            className="w-full"
-          >
-            <ToggleGroupItem value="tcp-inject" className="flex-1">TCP Inject (Fake TLS)</ToggleGroupItem>
-            <ToggleGroupItem value="singbox" className="flex-1">Standard (sing‑box)</ToggleGroupItem>
-          </ToggleGroup>
-          <p className="text-xs text-textMuted mt-2">
-            TCP Inject mode uses wrong_seq packet injection to bypass DPI. Requires administrator privileges.
-          </p>
-        </Card>
-        </div>
+        <div className="col-span-2">
+          <Card className="rounded-xl">
+            <h3 className="text-sm font-semibold mb-4">Connection</h3>
 
-        <div className="col-span-1">
-          <Card className="flex h-[330px] flex-col rounded-xl">
-            <h3 className="mb-4 text-sm font-semibold">Connection</h3>
-
-            <label className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
               <div>
                 <div className="font-medium text-text">Full System Tunnel</div>
                 <div className="text-xs text-textMuted">
                   Routes Windows traffic through sing-box TUN instead of relying only
                   on app proxy support.
                 </div>
-
-                {coreDraft.proxyScope === "lan" ? (
-                  <div className="mt-1 text-xs text-warning">
-                    Turning this on will disable Proxy Sharing.
-                  </div>
-                ) : null}
               </div>
 
               <Switch
@@ -630,21 +480,164 @@ export function SettingsPage() {
               />
             </label>
 
-            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
               <div>
-                <div className="font-medium text-text">Auto Reconnect</div>
+                <div className="font-medium">Proxy Sharing</div>
                 <div className="text-xs text-textMuted">
-                  Automatically reconnect after configuration changes or temporary
-                  network interruptions.
+                  Allow other devices on your network to use Fracture.
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between gap-6">
+                {coreDraft.proxyScope === "lan" && (
+                  <div className="grid grid-cols-2 gap-4 max-w-64">
+                    <InputGroup>
+                      <InputGroupAddon>
+                        <InputGroupText>HTTP</InputGroupText>
+                      </InputGroupAddon>
+                      <InputGroupInput type="number" value={coreDraft.proxyPort} placeholder="HTTP"
+                        onChange={(e) =>
+                          void saveProxySettings({
+                            ...coreDraft,
+                            proxyPort: Number(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </InputGroup>
+
+                    <InputGroup>
+                      <InputGroupAddon>
+                        <InputGroupText>SOCKS</InputGroupText>
+                      </InputGroupAddon>
+                      <InputGroupInput type="number" value={coreDraft.socksPort} placeholder="SOCKS"
+                        onChange={(e) =>
+                          void saveProxySettings({
+                            ...coreDraft,
+                            socksPort: Number(e.target.value) || 0,
+                          })
+                        }
+                      />
+                    </InputGroup>
+                  </div>
+                )}
+
+                <Switch
+                  checked={coreDraft.proxyScope === "lan"}
+                  onCheckedChange={(checked) => {
+                    const nextScope = checked ? "lan" : "local";
+
+                    void saveProxySettings({
+                      ...coreDraft,
+                      proxyScope: nextScope,
+                    });
+
+                    if (checked && routingDraft.tunMode) {
+                      void saveRoutingSettings({
+                        ...routingDraft,
+                        tunMode: false,
+                        outboundMode: "proxy",
+                      });
+
+                      toast.info(
+                        "Proxy Sharing turned off Full System Tunnel so only one whole-device mode stays active."
+                      );
+                    }
+                  }}
+                />
+              </div>
+
+            </label>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
+                <div>
+                  <div className="font-medium text-text">Auto Reconnect</div>
+                  <div className="text-xs text-textMuted">
+                    Automatically reconnect after configuration changes or temporary
+                    network interruptions.
+                  </div>
+                </div>
+
+                <Switch
+                  checked={coreDraft.autoReconnect}
+                  onCheckedChange={(checked) =>
+                    void saveProxySettings({
+                      ...coreDraft,
+                      autoReconnect: checked,
+                    })
+                  }
+                />
+              </label>
+            
+            <h3 className="text-sm font-semibold mb-4 mt-5">General</h3>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
+              <div>
+                <div className="font-medium">Appearance</div>
+                <div className="text-xs text-textMuted">
+                  Choose your preferred visual appearance.
+                </div>
+              </div>
+
+              <ToggleGroup type="single" className="ms-auto w-[270px]" value={uiDraft.theme}
+                           onValueChange={(value) => {
+                             if (value) { void changeTheme(value as "light" | "dark" | "system"); }
+                           }}
+              >
+                <ToggleGroupItem value="light">Light</ToggleGroupItem>
+                <ToggleGroupItem value="dark">Dark</ToggleGroupItem>
+                <ToggleGroupItem value="system">System</ToggleGroupItem>
+              </ToggleGroup>
+            </label>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
+              <div>
+                <div className="font-medium">Start with Windows</div>
+                <div className="text-xs text-textMuted">
+                  Launch Fracture automatically when you sign in.
                 </div>
               </div>
 
               <Switch
-                checked={coreDraft.autoReconnect}
+                checked={uiDraft.runOnStartup}
                 onCheckedChange={(checked) =>
-                  void saveProxySettings({
-                    ...coreDraft,
-                    autoReconnect: checked,
+                  void updateUiSettings({
+                    runOnStartup: checked
+                  })
+                }
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
+              <div>
+                <div className="font-medium">Close To Tray</div>
+                <div className="text-xs text-textMuted">
+                  When enabled, closing the window hides Fracture to the system tray.
+                </div>
+              </div>
+
+              <Switch
+                checked={uiDraft.closeToTray}
+                onCheckedChange={(checked) =>
+                  void updateUiSettings({
+                    closeToTray: checked
+                  })
+                }
+              />
+            </label>
+
+            <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+              <div>
+                <div className="font-medium">Show Development Logs</div>
+                <div className="text-xs text-textMuted">
+                  Show verbose debug entries in the Logs tab.
+                </div>
+              </div>
+
+              <Switch
+                checked={uiDraft.showDevelopmentLogs}
+                onCheckedChange={(checked) =>
+                  void updateUiSettings({
+                    showDevelopmentLogs: checked
                   })
                 }
               />

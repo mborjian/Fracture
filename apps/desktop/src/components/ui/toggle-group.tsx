@@ -38,14 +38,20 @@ function ToggleGroup({
   children,
   variant,
   size,
+  orientation = "horizontal",
   ...props
 }: React.ComponentPropsWithoutRef<typeof ToggleGroupPrimitive.Root> &
-  VariantProps<typeof toggleGroupItemVariants>) {
+  VariantProps<typeof toggleGroupItemVariants> & {
+    orientation?: "horizontal" | "vertical";
+  }) {
   return (
     <ToggleGroupPrimitive.Root
       data-slot="toggle-group"
+      orientation={orientation}
       className={cn(
-        "flex items-center p-1 rounded-xl bg-panelAlt border border-border",
+        "flex p-1 rounded-xl bg-panelAlt border border-border",
+        orientation === "horizontal" && "items-center",
+        orientation === "vertical" && "flex-col w-full",
         className
       )}
       {...props}
@@ -77,6 +83,7 @@ function ToggleGroupItem({
         }),
         "rounded-lg data-[state=on]:bg-accent data-[state=on]:text-white",
         "hover:bg-white/5",
+        "w-full",
         className
       )}
       {...props}
