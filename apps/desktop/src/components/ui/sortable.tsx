@@ -138,8 +138,15 @@ export function SortableItem<T>({ value, disabled, className, style, children, .
           transition,
           ...style
         }}
-        className={cn("touch-manipulation", isDragging ? "z-10 opacity-70" : "", className)}
+        className={cn(
+          "touch-manipulation",
+          disabled ? "cursor-not-allowed" : isDragging ? "cursor-grabbing" : "cursor-grab",
+          isDragging ? "z-10 opacity-70" : "",
+          className
+        )}
         data-dragging={isDragging ? "" : undefined}
+        {...attributes}
+        {...listeners}
         {...props}
       >
         {children}

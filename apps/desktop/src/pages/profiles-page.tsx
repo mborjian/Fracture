@@ -1,4 +1,4 @@
-import { ArrowUpDown, Gauge, GripVertical, Import, Loader2, TimerReset, Trash2, X } from "lucide-react";
+import { ArrowUpDown, Gauge, Import, Loader2, TimerReset, Trash2, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sortable, SortableContent, SortableItem, SortableItemHandle } from "@/components/ui/sortable";
+import { Sortable, SortableContent, SortableItem } from "@/components/ui/sortable";
 import { useProfilesQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
@@ -558,7 +558,7 @@ export function ProfilesPage() {
                 <SortableItem key={profile.id} value={profile}>
                   <Card
                     className={cn(
-                      "w-full rounded-xl p-3 transition-all",
+                      "w-full select-none rounded-xl p-3 transition-all",
                       active
                         ? "border-success bg-[linear-gradient(135deg,rgba(34,197,94,0.10)_0%,rgba(34,197,94,0.05)_45%,rgba(255,255,255,0.05)_100%)] shadow-[0_0_0_1px_rgba(34,197,94,0.4),0_0_26px_rgba(34,197,94,0.18)]"
                         : ""
@@ -575,12 +575,6 @@ export function ProfilesPage() {
                     }}
                   >
                     <div className="flex items-center gap-3">
-                      <SortableItemHandle
-                        aria-label={`Drag ${profile.name}`}
-                        className="h-7 w-7 shrink-0 text-textMuted/70 hover:bg-panelAlt hover:text-text"
-                      >
-                        <GripVertical className="h-4 w-4" />
-                      </SortableItemHandle>
                       <span className={typeBadgeClass}>{profileType}</span>
                       <div className="min-w-0 flex-1">
                         <div className="truncate text-sm font-semibold">{profile.name}</div>
