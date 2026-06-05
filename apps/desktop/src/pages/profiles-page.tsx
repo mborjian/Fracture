@@ -27,6 +27,13 @@ type ProfileMetricEvent = CustomEvent<{
   latencyMs?: number | null;
   speedMBps?: number | null;
 }>;
+type ProfileMetricSummaryEvent = CustomEvent<{
+  type: "ping" | "speed";
+  completed: number;
+  successes: number;
+  failures: number;
+  cancelled: boolean;
+}>;
 
 const CONTEXT_MENU_WIDTH = 180;
 const CONTEXT_MENU_HEIGHT = 234;
@@ -51,7 +58,6 @@ export function ProfilesPage() {
   const [sortBusy, setSortBusy] = useState(false);
   const [reorderBusy, setReorderBusy] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [menuBusy, setMenuBusy] = useState(false);
   const [renaming, setRenaming] = useState<Profile | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [testingPingIds, setTestingPingIds] = useState<Set<string>>(new Set());
@@ -68,30 +74,63 @@ export function ProfilesPage() {
   }, [data]);
 
   useEffect(() => {
+    const addTestingPingId = (profileId: string) => {
+      setTestingPingIds((prev) => new Set(prev).add(profileId));
+    };
+    const removeTestingPingId = (profileId: string) => {
+      setTestingPingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(profileId);
+        return next;
+      });
+    };
+    const addTestingSpeedId = (profileId: string) => {
+      setTestingSpeedIds((prev) => new Set(prev).add(profileId));
+    };
+    const removeTestingSpeedId = (profileId: string) => {
+      setTestingSpeedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(profileId);
+        return next;
+      });
+    };
+
     const onMetric = (event: Event) => {
       const detail = (event as ProfileMetricEvent).detail;
       if (!detail?.profileId) return;
       if (detail.type === "ping") {
-        setTestingPingIds((prev) => {
-          const next = new Set(prev);
-          next.delete(detail.profileId);
-          return next;
-        });
+        removeTestingPingId(detail.profileId);
         setPingOverrides((prev) => ({ ...prev, [detail.profileId]: detail.ok ? detail.latencyMs : null }));
       }
       if (detail.type === "speed") {
-        setTestingSpeedIds((prev) => {
-          const next = new Set(prev);
-          next.delete(detail.profileId);
-          return next;
-        });
+        removeTestingSpeedId(detail.profileId);
         setSpeedOverrides((prev) => ({ ...prev, [detail.profileId]: detail.ok ? detail.speedMBps : null }));
       }
     };
 
+    const onSummary = (event: Event) => {
+      const detail = (event as ProfileMetricSummaryEvent).detail;
+      if (!detail) return;
+      if (detail.type === "ping") {
+        setPingAllRunning(false);
+        setTestingPingIds(new Set());
+        setPingOverrides({});
+      }
+      if (detail.type === "speed") {
+        setSpeedAllRunning(false);
+        setTestingSpeedIds(new Set());
+        setSpeedOverrides({});
+      }
+      void queryClient.refetchQueries({ queryKey: ["profiles"], type: "active" });
+    };
+
     window.addEventListener("fracture-profile-metric", onMetric);
-    return () => window.removeEventListener("fracture-profile-metric", onMetric);
-  }, []);
+    window.addEventListener("fracture-profile-metric-summary", onSummary);
+    return () => {
+      window.removeEventListener("fracture-profile-metric", onMetric);
+      window.removeEventListener("fracture-profile-metric-summary", onSummary);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     const onPointerDown = () => setContextMenu(null);
@@ -248,17 +287,13 @@ export function ProfilesPage() {
     setPingAllRunning(true);
     setTestingPingIds(new Set(ids));
     setPingOverrides(Object.fromEntries(ids.map((id) => [id, null])));
-    try {
-      const effectiveResult = await api.pingAllProfiles(ids);
-      await refreshProfiles();
-      setPingOverrides({});
-      toast.success(`Delay test done: ${effectiveResult.successes} ok, ${effectiveResult.failures} failed`);
-    } catch (error) {
-      toast.error((error as Error).message);
-    } finally {
+    toast.success(`Delay test started for ${ids.length} profile${ids.length === 1 ? "" : "s"}`);
+    void api.pingAllProfiles(ids).catch((error) => {
       setPingAllRunning(false);
       setTestingPingIds(new Set());
-    }
+      setPingOverrides({});
+      toast.error((error as Error).message);
+    });
   };
 
   const handleSortByPing = async () => {
@@ -295,17 +330,13 @@ export function ProfilesPage() {
     setSpeedAllRunning(true);
     setTestingSpeedIds(new Set(ids));
     setSpeedOverrides(Object.fromEntries(ids.map((id) => [id, null])));
-    try {
-      const result = await api.speedAllProfiles(ids);
-      await refreshProfiles();
-      setSpeedOverrides({});
-      toast.success(`Speed test done: ${result.successes} ok, ${result.failures} failed`);
-    } catch (error) {
-      toast.error((error as Error).message);
-    } finally {
+    toast.success(`Speed test started for ${ids.length} profile${ids.length === 1 ? "" : "s"}`);
+    void api.speedAllProfiles(ids).catch((error) => {
       setSpeedAllRunning(false);
       setTestingSpeedIds(new Set());
-    }
+      setSpeedOverrides({});
+      toast.error((error as Error).message);
+    });
   };
 
   const startRename = (profile: Profile) => {
@@ -332,7 +363,7 @@ export function ProfilesPage() {
   };
 
   const runContextAction = async (action: "rename" | "ping" | "speed" | "export" | "delete") => {
-    if (!contextMenu || menuBusy) return;
+    if (!contextMenu) return;
     const profile = contextMenu.profile;
     if (action === "rename") {
       startRename(profile);
@@ -344,41 +375,50 @@ export function ProfilesPage() {
       return;
     }
 
-    setMenuBusy(true);
     try {
       if (action === "ping") {
-        setTestingPingIds(new Set([profile.id]));
+        setContextMenu(null);
+        setTestingPingIds((prev) => new Set(prev).add(profile.id));
         setPingOverrides((prev) => ({ ...prev, [profile.id]: null }));
-        const result = await api.pingProfile(profile.id);
-        setPingOverrides((prev) => ({ ...prev, [profile.id]: result.latencyMs }));
-        toast.success(result.ok ? `Delay: ${result.latencyMs} ms` : `Delay failed: ${result.error ?? "unknown error"}`);
+        void api
+          .pingProfile(profile.id)
+          .then((result) => {
+            toast.success(result.ok ? `Delay: ${result.latencyMs} ms` : `Delay failed: ${result.error ?? "unknown error"}`);
+          })
+          .catch((error) => {
+            setTestingPingIds((prev) => {
+              const next = new Set(prev);
+              next.delete(profile.id);
+              return next;
+            });
+            toast.error((error as Error).message);
+          });
       } else if (action === "speed") {
-        setTestingSpeedIds(new Set([profile.id]));
+        setContextMenu(null);
+        setTestingSpeedIds((prev) => new Set(prev).add(profile.id));
         setSpeedOverrides((prev) => ({ ...prev, [profile.id]: null }));
-        const result = await api.speedProfile(profile.id);
-        setSpeedOverrides((prev) => ({ ...prev, [profile.id]: result.ok ? result.speedMBps : null }));
-        toast.success(result.ok ? `Speed: ${result.speedMBps} MB/s` : `Speed test failed: ${result.error ?? "unknown error"}`);
+        void api
+          .speedProfile(profile.id)
+          .then((result) => {
+            toast.success(result.ok ? `Speed: ${result.speedMBps} MB/s` : `Speed test failed: ${result.error ?? "unknown error"}`);
+          })
+          .catch((error) => {
+            setTestingSpeedIds((prev) => {
+              const next = new Set(prev);
+              next.delete(profile.id);
+              return next;
+            });
+            toast.error((error as Error).message);
+          });
       } else if (action === "export") {
         const link = profile.link?.trim() ? profile.link : (await api.exportProfile(profile.id)).link;
         await navigator.clipboard.writeText(link);
         toast.success("Profile config copied to clipboard");
+        await refreshProfiles();
+        setContextMenu(null);
       }
-      await refreshProfiles();
-      setContextMenu(null);
     } catch (error) {
       toast.error((error as Error).message);
-    } finally {
-      setTestingPingIds((prev) => {
-        const next = new Set(prev);
-        next.delete(profile.id);
-        return next;
-      });
-      setTestingSpeedIds((prev) => {
-        const next = new Set(prev);
-        next.delete(profile.id);
-        return next;
-      });
-      setMenuBusy(false);
     }
   };
 

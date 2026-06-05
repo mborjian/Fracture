@@ -45,6 +45,7 @@ export function connectRealtime(queryClient: QueryClient) {
       }
       if (data.type === "ping-summary") {
         const summary = data.payload as { completed: number; successes: number; failures: number; cancelled: boolean };
+        window.dispatchEvent(new CustomEvent("fracture-profile-metric-summary", { detail: { type: "ping", ...summary } }));
         useAppStore.getState().addLog({
           id: `ping-summary-${Date.now()}`,
           ts: new Date().toISOString(),
@@ -75,6 +76,7 @@ export function connectRealtime(queryClient: QueryClient) {
       }
       if (data.type === "speed-summary") {
         const summary = data.payload as { completed: number; successes: number; failures: number; cancelled: boolean };
+        window.dispatchEvent(new CustomEvent("fracture-profile-metric-summary", { detail: { type: "speed", ...summary } }));
         useAppStore.getState().addLog({
           id: `speed-summary-${Date.now()}`,
           ts: new Date().toISOString(),
