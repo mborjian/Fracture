@@ -10,27 +10,57 @@ import type {
 
 const BASE_URL = "http://127.0.0.1:8765";
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+type RequestOptions = RequestInit & {
+  timeoutMs?: number;
+};
+
+async function request<T>(path: string, init?: RequestOptions): Promise<T> {
   const url = `${BASE_URL}${path}`;
   const method = init?.method ?? "GET";
+  const controller = new AbortController();
+  const timeoutMs = init?.timeoutMs;
+  const timeoutHandle = typeof timeoutMs === "number"
+    ? window.setTimeout(() => controller.abort(new Error(`Request timed out after ${timeoutMs} ms`)), timeoutMs)
+    : null;
   let response: Response;
   try {
     response = await fetch(url, {
       ...init,
+      signal: controller.signal,
       headers: {
         "Content-Type": "application/json",
         ...(init?.headers ?? {})
       }
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = error instanceof Error
+      ? error.name === "AbortError" && typeof timeoutMs === "number"
+        ? `Request timed out after ${Math.ceil(timeoutMs / 1000)} seconds`
+        : error.message
+      : String(error);
     const wrapped = new Error(`Network request failed: ${method} ${url}. Backend is unreachable. ${message}`);
     (wrapped as Error & { cause?: unknown }).cause = error;
     throw wrapped;
+  } finally {
+    if (timeoutHandle !== null) {
+      window.clearTimeout(timeoutHandle);
+    }
   }
 
   if (!response.ok) {
     const text = await response.text();
+    if (text) {
+      try {
+        const parsed = JSON.parse(text) as { detail?: string };
+        if (typeof parsed.detail === "string" && parsed.detail.trim()) {
+          throw new Error(parsed.detail);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message !== text) {
+          throw error;
+        }
+      }
+    }
     throw new Error(text || `API ${method} ${url} failed: ${response.status} ${response.statusText}`);
   }
 
@@ -89,7 +119,8 @@ export const api = {
       `/api/profiles/${profileId}/ping`,
       {
         method: "POST",
-        body: JSON.stringify({ timeout_ms: timeoutMs })
+        body: JSON.stringify({ timeout_ms: timeoutMs }),
+        timeoutMs: timeoutMs + 1500
       }
     ),
   speedProfile: (profileId: string, timeoutMs = 8000) =>
@@ -97,7 +128,8 @@ export const api = {
       `/api/profiles/${profileId}/speed`,
       {
         method: "POST",
-        body: JSON.stringify({ timeout_ms: timeoutMs })
+        body: JSON.stringify({ timeout_ms: timeoutMs }),
+        timeoutMs: timeoutMs + 1500
       }
     ),
   exportProfile: (profileId: string) =>
@@ -133,7 +165,8 @@ export const api = {
       "/api/profiles/ping-all",
       {
         method: "POST",
-        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs })
+        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs }),
+        timeoutMs: Math.max(timeoutMs + 5000, (profileIds?.length ?? 1) * (timeoutMs + 1000))
       }
     ),
   speedAllProfiles: (profileIds?: string[], timeoutMs = 8000) =>
@@ -141,7 +174,8 @@ export const api = {
       "/api/profiles/speed-all",
       {
         method: "POST",
-        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs })
+        body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs }),
+        timeoutMs: Math.max(timeoutMs + 5000, (profileIds?.length ?? 1) * (timeoutMs + 1000))
       }
     ),
   cancelPingAll: () =>
