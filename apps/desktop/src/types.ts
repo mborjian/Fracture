@@ -6,6 +6,7 @@ export type NavPage =
   | "logs";
 
 export type ConnectionState = "stopped" | "starting" | "running" | "error";
+export type PendingConnectionAction = "idle" | "connecting" | "disconnecting";
 
 export interface CoreStatus {
   state: ConnectionState;

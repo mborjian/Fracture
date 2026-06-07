@@ -1,12 +1,14 @@
 import { create } from "zustand";
-import type { ConnectionState, CoreStatus, LogEvent, NavPage } from "@/types";
+import type { ConnectionState, CoreStatus, LogEvent, NavPage, PendingConnectionAction } from "@/types";
 
 interface AppState {
   page: NavPage;
   connectionState: ConnectionState;
+  pendingConnectionAction: PendingConnectionAction;
   status: CoreStatus | null;
   logs: LogEvent[];
   setPage: (page: NavPage) => void;
+  setPendingConnectionAction: (action: PendingConnectionAction) => void;
   setStatus: (status: CoreStatus) => void;
   addLog: (log: LogEvent) => void;
   clearLogs: () => void;
@@ -15,13 +17,21 @@ interface AppState {
 export const useAppStore = create<AppState>((set, get) => ({
   page: "dashboard",
   connectionState: "stopped",
+  pendingConnectionAction: "idle",
   status: null,
   logs: [],
   setPage: (page) => set({ page }),
+  setPendingConnectionAction: (pendingConnectionAction) => set({ pendingConnectionAction }),
   setStatus: (status) =>
     set({
       status,
-      connectionState: status.state
+      connectionState: status.state,
+      pendingConnectionAction:
+        get().pendingConnectionAction === "connecting" && (status.state === "running" || status.state === "error" || status.state === "stopped")
+          ? "idle"
+          : get().pendingConnectionAction === "disconnecting" && status.state === "stopped"
+            ? "idle"
+            : get().pendingConnectionAction
     }),
   addLog: (log) => {
     if (get().logs.some((entry) => entry.id === log.id)) {

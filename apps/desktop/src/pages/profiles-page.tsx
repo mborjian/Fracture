@@ -37,12 +37,19 @@ type ProfileMetricSummaryEvent = CustomEvent<{
   cancelled: boolean;
 }>;
 
+const FAILED_PING_MS = -1;
+const FAILED_SPEED_MBPS = 0;
+
 const CONTEXT_MENU_WIDTH = 180;
 const CONTEXT_MENU_HEIGHT = 234;
 const VIEWPORT_PADDING = 8;
 
 function clampToViewport(value: number, size: number, viewportSize: number) {
   return Math.max(VIEWPORT_PADDING, Math.min(value, viewportSize - size - VIEWPORT_PADDING));
+}
+
+function formatSpeedDisplay(value: number) {
+  return value === FAILED_SPEED_MBPS ? "0.0" : value.toFixed(2);
 }
 
 export function ProfilesPage() {
@@ -103,11 +110,11 @@ export function ProfilesPage() {
       if (!detail?.profileId) return;
       if (detail.type === "ping") {
         removeTestingPingId(detail.profileId);
-        setPingOverrides((prev) => ({ ...prev, [detail.profileId]: detail.ok ? detail.latencyMs : null }));
+        setPingOverrides((prev) => ({ ...prev, [detail.profileId]: typeof detail.latencyMs === "number" ? detail.latencyMs : FAILED_PING_MS }));
       }
       if (detail.type === "speed") {
         removeTestingSpeedId(detail.profileId);
-        setSpeedOverrides((prev) => ({ ...prev, [detail.profileId]: detail.ok ? detail.speedMBps : null }));
+        setSpeedOverrides((prev) => ({ ...prev, [detail.profileId]: typeof detail.speedMBps === "number" ? detail.speedMBps : FAILED_SPEED_MBPS }));
       }
     };
 
@@ -666,11 +673,11 @@ export function ProfilesPage() {
               const speedDisplay = testingSpeedIds.has(profile.id)
                 ? "--"
                 : typeof speedOverrides[profile.id] === "number"
-                  ? Number(speedOverrides[profile.id]).toFixed(2)
+                  ? formatSpeedDisplay(Number(speedOverrides[profile.id]))
                   : typeof profile.lastSpeedMbps === "number"
-                    ? profile.lastSpeedMbps.toFixed(2)
+                    ? formatSpeedDisplay(profile.lastSpeedMbps)
                     : "--";
-              const pingDanger = pingDisplay === "-1";
+              const pingDanger = pingDisplay === String(FAILED_PING_MS);
               const profileType = String(profile.protocol ?? "unknown").toUpperCase();
 
               return (

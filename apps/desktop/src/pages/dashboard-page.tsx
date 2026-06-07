@@ -16,8 +16,6 @@ import { Card } from "@/components/ui/card";
 import { useCoreStatusQuery, useProfilesQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
-
-type PendingAction = "idle" | "connecting" | "disconnecting";
 type TrafficSample = { download: number; upload: number };
 
 const TRAFFIC_HISTORY_LIMIT = 48;
@@ -112,7 +110,8 @@ export function DashboardPage() {
   const setStatus = useAppStore((s) => s.setStatus);
   const status = useAppStore((s) => s.status);
   const addLog = useAppStore((s) => s.addLog);
-  const [pendingAction, setPendingAction] = useState<PendingAction>("idle");
+  const pendingAction = useAppStore((s) => s.pendingConnectionAction);
+  const setPendingAction = useAppStore((s) => s.setPendingConnectionAction);
   const [trafficHistory, setTrafficHistory] = useState<TrafficSample[]>(
     Array.from({ length: TRAFFIC_HISTORY_LIMIT }, () => ({ download: 0, upload: 0 }))
   );
@@ -144,16 +143,6 @@ export function DashboardPage() {
       cancelled = true;
     };
   }, [setStatus, status?.activeProfileId, status?.state]);
-
-  useEffect(() => {
-    const state = status?.state ?? "stopped";
-    if (pendingAction === "connecting" && (state === "running" || state === "error" || state === "stopped")) {
-      setPendingAction("idle");
-    }
-    if (pendingAction === "disconnecting" && state === "stopped") {
-      setPendingAction("idle");
-    }
-  }, [pendingAction, status?.state]);
 
   const state = status?.state ?? "stopped";
   const isConnected = state === "running";

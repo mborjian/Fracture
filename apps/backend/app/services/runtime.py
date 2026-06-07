@@ -840,8 +840,11 @@ class CoreRuntimeService:
     def _system_proxy_bypass(routing: dict[str, object]) -> str:
         raw = str(routing.get("bypassDomains", "")).strip()
         domains = [item.strip() for item in raw.replace("\n", ",").split(",") if item.strip()]
-        if "<local>" not in {item.lower() for item in domains}:
-            domains.append("<local>")
+        required_entries = ("<local>", "localhost", "127.0.0.1", "::1")
+        existing = {item.lower() for item in domains}
+        for entry in required_entries:
+            if entry.lower() not in existing:
+                domains.append(entry)
         return ";".join(domains)
 
     @staticmethod
