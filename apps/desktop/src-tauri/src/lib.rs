@@ -613,6 +613,26 @@ fn open_external_url(url: String) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+fn read_import_file_texts(paths: Vec<String>) -> Result<Vec<String>, String> {
+    if paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut payloads = Vec::with_capacity(paths.len());
+    for path in paths {
+        if !path.to_lowercase().ends_with(".txt") {
+            return Err("Only .txt files can be dropped here".to_string());
+        }
+
+        let content = fs::read_to_string(&path)
+            .map_err(|error| format!("failed to read dropped file '{path}': {error}"))?;
+        payloads.push(content);
+    }
+
+    Ok(payloads)
+}
+
 pub fn run() {
     let app = tauri::Builder::default()
         .setup(|app| {
@@ -653,7 +673,8 @@ pub fn run() {
             stop_backend,
             apply_shell_settings,
             hide_to_tray,
-            open_external_url
+            open_external_url,
+            read_import_file_texts
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

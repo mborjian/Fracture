@@ -2,6 +2,8 @@ import { ArrowUpDown, Gauge, Import, Loader2, TimerReset, Trash2, X } from "luci
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
+import { invoke, isTauri } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -65,6 +67,7 @@ export function ProfilesPage() {
   const [pingOverrides, setPingOverrides] = useState<MetricOverrides>({});
   const [speedOverrides, setSpeedOverrides] = useState<MetricOverrides>({});
   const dragDepthRef = useRef(0);
+  const nativeDropHandledAtRef = useRef(0);
   const importTextAreaRef = useRef<HTMLTextAreaElement | null>(null);
   const ensuringSelectionRef = useRef(false);
   const activeProfileId = status?.activeProfileId ?? null;
@@ -195,7 +198,44 @@ export function ProfilesPage() {
     setImportText(content);
   };
 
-  const isAllowedImportFile = (file: File) => file.name.toLowerCase().endsWith(".txt");
+  const normalizeImportedText = (content: string) => content.replace(/^\uFEFF/, "");
+
+  const isAllowedImportFileName = (fileName: string) => fileName.toLowerCase().endsWith(".txt");
+
+  const applyImportedPayloads = (payloads: string[]) => {
+    const normalizedPayloads = payloads.map(normalizeImportedText);
+    replaceImportText(normalizedPayloads.join("\n"));
+    toast.success(`${normalizedPayloads.length} file content${normalizedPayloads.length === 1 ? "" : "s"} loaded`);
+  };
+
+  const handleDroppedImportFiles = async (files: File[]) => {
+    if (files.some((file) => !isAllowedImportFileName(file.name))) {
+      toast.error("Only .txt files can be dropped here");
+      return;
+    }
+    try {
+      const payloads = await Promise.all(files.map((file) => file.text()));
+      applyImportedPayloads(payloads);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const handleDroppedImportPaths = async (paths: string[]) => {
+    if (paths.length === 0) {
+      return;
+    }
+    if (paths.some((path) => !isAllowedImportFileName(path))) {
+      toast.error("Only .txt files can be dropped here");
+      return;
+    }
+    try {
+      const payloads = await invoke<string[]>("read_import_file_texts", { paths });
+      applyImportedPayloads(payloads);
+    } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
 
   const handleImportDrop = async (event: DragEvent<HTMLElement>) => {
     event.preventDefault();
@@ -203,27 +243,66 @@ export function ProfilesPage() {
     dragDepthRef.current = 0;
     setImportDragActive(false);
 
+    if (isTauri() && Date.now() - nativeDropHandledAtRef.current < 250) {
+      return;
+    }
+
     const files = Array.from(event.dataTransfer.files);
     if (files.length > 0) {
-      if (files.some((file) => !isAllowedImportFile(file))) {
-        toast.error("Only .txt files can be dropped here");
-        return;
-      }
-      try {
-        const payloads = await Promise.all(files.map((file) => file.text()));
-        replaceImportText(payloads.join("\n"));
-        toast.success(`${payloads.length} file content${payloads.length === 1 ? "" : "s"} loaded`);
-      } catch (error) {
-        toast.error((error as Error).message);
-      }
+      await handleDroppedImportFiles(files);
       return;
     }
 
     const droppedText = event.dataTransfer.getData("text/plain");
     if (droppedText.trim()) {
-      replaceImportText(droppedText);
+      replaceImportText(normalizeImportedText(droppedText));
     }
   };
+
+  useEffect(() => {
+    if (!showImport || !isTauri()) {
+      return;
+    }
+
+    let active = true;
+    let unlisten: (() => void) | undefined;
+
+    void getCurrentWindow()
+      .onDragDropEvent((event) => {
+        if (!active) {
+          return;
+        }
+
+        if (event.payload.type === "leave") {
+          dragDepthRef.current = 0;
+          setImportDragActive(false);
+          return;
+        }
+
+        if (event.payload.type === "enter" || event.payload.type === "over") {
+          setImportDragActive(true);
+          return;
+        }
+
+        dragDepthRef.current = 0;
+        setImportDragActive(false);
+        nativeDropHandledAtRef.current = Date.now();
+        void handleDroppedImportPaths(event.payload.paths);
+      })
+      .then((cleanup) => {
+        if (active) {
+          unlisten = cleanup;
+        } else {
+          cleanup();
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [showImport]);
 
   const handleImport = async () => {
     if (importBusy) return;
