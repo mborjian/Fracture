@@ -465,17 +465,6 @@ export function SettingsPage() {
                     tunMode: checked,
                     outboundMode: checked ? "tun" : "proxy",
                   });
-
-                  if (checked && coreDraft.proxyScope === "lan") {
-                    void saveProxySettings({
-                      ...coreDraft,
-                      proxyScope: "local",
-                    });
-
-                    toast.info(
-                      "Full System Tunnel disabled Proxy Sharing so only one whole-device mode stays active."
-                    );
-                  }
                 }}
               />
             </label>
@@ -484,7 +473,8 @@ export function SettingsPage() {
               <div>
                 <div className="font-medium">Proxy Sharing</div>
                 <div className="text-xs text-textMuted">
-                  Allow other devices on your network to use Fracture.
+                  Allow other devices on your network to use Fracture, even while this
+                  device is using Full System Tunnel.
                 </div>
               </div>
 
@@ -530,18 +520,6 @@ export function SettingsPage() {
                       ...coreDraft,
                       proxyScope: nextScope,
                     });
-
-                    if (checked && routingDraft.tunMode) {
-                      void saveRoutingSettings({
-                        ...routingDraft,
-                        tunMode: false,
-                        outboundMode: "proxy",
-                      });
-
-                      toast.info(
-                        "Proxy Sharing turned off Full System Tunnel so only one whole-device mode stays active."
-                      );
-                    }
                   }}
                 />
               </div>
