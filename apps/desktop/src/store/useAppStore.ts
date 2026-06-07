@@ -6,10 +6,14 @@ interface AppState {
   connectionState: ConnectionState;
   pendingConnectionAction: PendingConnectionAction;
   status: CoreStatus | null;
+  pingAllRunning: boolean;
+  speedAllRunning: boolean;
   logs: LogEvent[];
   setPage: (page: NavPage) => void;
   setPendingConnectionAction: (action: PendingConnectionAction) => void;
   setStatus: (status: CoreStatus) => void;
+  setPingAllRunning: (running: boolean) => void;
+  setSpeedAllRunning: (running: boolean) => void;
   addLog: (log: LogEvent) => void;
   clearLogs: () => void;
 }
@@ -19,6 +23,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   connectionState: "stopped",
   pendingConnectionAction: "idle",
   status: null,
+  pingAllRunning: false,
+  speedAllRunning: false,
   logs: [],
   setPage: (page) => set({ page }),
   setPendingConnectionAction: (pendingConnectionAction) => set({ pendingConnectionAction }),
@@ -33,6 +39,8 @@ export const useAppStore = create<AppState>((set, get) => ({
             ? "idle"
             : get().pendingConnectionAction
     }),
+  setPingAllRunning: (pingAllRunning) => set({ pingAllRunning }),
+  setSpeedAllRunning: (speedAllRunning) => set({ speedAllRunning }),
   addLog: (log) => {
     if (get().logs.some((entry) => entry.id === log.id)) {
       return;

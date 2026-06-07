@@ -131,6 +131,8 @@ async def profiles_ping_one(profile_id: str, payload: PingOnePayload, request: R
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/{profile_id}/speed")
@@ -142,6 +144,8 @@ async def profiles_speed_one(profile_id: str, payload: PingOnePayload, request: 
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.post("/ping-all")

@@ -63,7 +63,29 @@ class ProfilePingService:
             payload["trace"] = trace
         await self._publish_event("log", payload)
 
-    async def ping_profile(self, profile_id: str, timeout_s: float = 8.0) -> dict:
+    def _running_conflict_message(self, requested_mode: str) -> str:
+        active_mode = self._state.mode or "test"
+        active_label = "delay" if active_mode == "delay" else "speed"
+        requested_label = "delay" if requested_mode == "delay" else "speed"
+        return f"A {active_label} test is still running. Until that test finishes, this {requested_label} test cannot run."
+
+    async def _ensure_not_running(self, requested_mode: str) -> None:
+        async with self._lock:
+            if self._state.running:
+                raise RuntimeError(self._running_conflict_message(requested_mode))
+
+    async def _run_probe_with_timeout(self, operation: Callable[[], Awaitable[dict]], timeout_s: float, mode: str) -> dict:
+        effective_timeout = max(0.5, timeout_s) + 0.25
+        try:
+            return await asyncio.wait_for(operation(), timeout=effective_timeout)
+        except asyncio.TimeoutError:
+            if mode == "delay":
+                return {"ok": False, "latencyMs": FAILED_PING_MS, "error": f"Delay test timed out after {int(max(1, round(timeout_s)))} seconds"}
+            return {"ok": False, "speedMBps": FAILED_SPEED_MBPS, "error": f"Speed test timed out after {int(max(1, round(timeout_s)))} seconds"}
+
+    async def ping_profile(self, profile_id: str, timeout_s: float = 8.0, *, allow_while_batch: bool = False) -> dict:
+        if not allow_while_batch:
+            await self._ensure_not_running("delay")
         profile = await fetch_profile_by_id(profile_id)
         if profile is None:
             raise ValueError("Profile not found")
@@ -71,8 +93,11 @@ class ProfilePingService:
         routing = await fetch_routing_config()
         core_settings = await fetch_core_settings()
         listener = await fetch_selected_cloudflare_listener()
-        async with self._temporary_probe_bridge(core_settings, listener):
-            result = await asyncio.to_thread(self._delay_probe_sync, profile, routing, core_settings, listener, timeout_s)
+        async def operation() -> dict:
+            async with self._temporary_probe_bridge(core_settings, listener):
+                return await asyncio.to_thread(self._delay_probe_sync, profile, routing, core_settings, listener, timeout_s)
+
+        result = await self._run_probe_with_timeout(operation, timeout_s, "delay")
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_ping_result(
             profile_id,
@@ -104,7 +129,7 @@ class ProfilePingService:
     async def ping_all(self, profile_ids: list[str], timeout_s: float = 8.0) -> dict:
         async with self._lock:
             if self._state.running:
-                raise RuntimeError("Delay test is already running")
+                raise RuntimeError(self._running_conflict_message("delay"))
             self._state.running = True
             self._state.cancel_requested = False
             self._state.mode = "delay"
@@ -158,7 +183,9 @@ class ProfilePingService:
             self._probe_bridge_refs = 0
             await self._stop_probe_bridge_locked()
 
-    async def speed_profile(self, profile_id: str, timeout_s: float = 8.0) -> dict:
+    async def speed_profile(self, profile_id: str, timeout_s: float = 8.0, *, allow_while_batch: bool = False) -> dict:
+        if not allow_while_batch:
+            await self._ensure_not_running("speed")
         profile = await fetch_profile_by_id(profile_id)
         if profile is None:
             raise ValueError("Profile not found")
@@ -166,8 +193,11 @@ class ProfilePingService:
         routing = await fetch_routing_config()
         core_settings = await fetch_core_settings()
         listener = await fetch_selected_cloudflare_listener()
-        async with self._temporary_probe_bridge(core_settings, listener):
-            result = await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s)
+        async def operation() -> dict:
+            async with self._temporary_probe_bridge(core_settings, listener):
+                return await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s)
+
+        result = await self._run_probe_with_timeout(operation, timeout_s, "speed")
         if not result["ok"]:
             result["speedMBps"] = FAILED_SPEED_MBPS
         now_iso = datetime.now(timezone.utc).isoformat()
@@ -196,7 +226,7 @@ class ProfilePingService:
     async def speed_all(self, profile_ids: list[str], timeout_s: float = 8.0) -> dict:
         async with self._lock:
             if self._state.running:
-                raise RuntimeError("Speed test is already running")
+                raise RuntimeError(self._running_conflict_message("speed"))
             self._state.running = True
             self._state.cancel_requested = False
             self._state.mode = "speed"
@@ -263,10 +293,10 @@ class ProfilePingService:
 
                 try:
                     if mode == "delay":
-                        result = await self.ping_profile(profile_id, timeout_s=timeout_s)
+                        result = await self.ping_profile(profile_id, timeout_s=timeout_s, allow_while_batch=True)
                         ok = bool(result["ok"])
                     else:
-                        result = await self.speed_profile(profile_id, timeout_s=timeout_s)
+                        result = await self.speed_profile(profile_id, timeout_s=timeout_s, allow_while_batch=True)
                         ok = bool(result["ok"])
                 except Exception as exc:  # noqa: BLE001
                     now_iso = datetime.now(timezone.utc).isoformat()

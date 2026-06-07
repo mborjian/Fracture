@@ -57,13 +57,15 @@ export function ProfilesPage() {
   const queryClient = useQueryClient();
   const status = useAppStore((s) => s.status);
   const setStatus = useAppStore((s) => s.setStatus);
+  const pingAllRunning = useAppStore((s) => s.pingAllRunning);
+  const speedAllRunning = useAppStore((s) => s.speedAllRunning);
+  const setPingAllRunning = useAppStore((s) => s.setPingAllRunning);
+  const setSpeedAllRunning = useAppStore((s) => s.setSpeedAllRunning);
   const [orderedProfiles, setOrderedProfiles] = useState<Profile[]>([]);
   const [importText, setImportText] = useState("");
   const [showImport, setShowImport] = useState(false);
   const [importDragActive, setImportDragActive] = useState(false);
   const [importBusy, setImportBusy] = useState(false);
-  const [pingAllRunning, setPingAllRunning] = useState(false);
-  const [speedAllRunning, setSpeedAllRunning] = useState(false);
   const [sortBusy, setSortBusy] = useState(false);
   const [reorderBusy, setReorderBusy] = useState(false);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -140,7 +142,7 @@ export function ProfilesPage() {
       window.removeEventListener("fracture-profile-metric", onMetric);
       window.removeEventListener("fracture-profile-metric-summary", onSummary);
     };
-  }, [queryClient]);
+  }, [queryClient, setPingAllRunning, setSpeedAllRunning]);
 
   useEffect(() => {
     const onPointerDown = () => setContextMenu(null);
