@@ -18,6 +18,12 @@ import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 
 type PendingAction = "idle" | "connecting" | "disconnecting";
+type TrafficSample = { download: number; upload: number };
+
+const TRAFFIC_HISTORY_LIMIT = 48;
+const TRAFFIC_CHART_WIDTH = 720;
+const TRAFFIC_CHART_HEIGHT = 46;
+const TRAFFIC_CHART_PADDING = 10;
 
 function formatSpeed(value: number) {
   if (value >= 1024 * 1024) {
@@ -41,6 +47,29 @@ function formatUptime(totalSeconds: number) {
   const minutes = Math.floor((totalSeconds % 3600) / 60);
   const seconds = totalSeconds % 60;
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
+}
+
+function buildTrafficPoints(values: number[], maxValue: number) {
+  const innerHeight = TRAFFIC_CHART_HEIGHT - TRAFFIC_CHART_PADDING * 2;
+  return values.map((value, index) => {
+    const x = values.length > 1 ? (index / (values.length - 1)) * TRAFFIC_CHART_WIDTH : TRAFFIC_CHART_WIDTH / 2;
+    const ratio = maxValue > 0 ? value / maxValue : 0;
+    const y = TRAFFIC_CHART_HEIGHT - TRAFFIC_CHART_PADDING - ratio * innerHeight;
+    return `${x},${y}`;
+  });
+}
+
+function buildTrafficArea(points: string[]) {
+  if (points.length === 0) {
+    return "";
+  }
+  return [
+    `M ${points[0]}`,
+    ...points.slice(1).map((point) => `L ${point}`),
+    `L ${TRAFFIC_CHART_WIDTH},${TRAFFIC_CHART_HEIGHT}`,
+    `L 0,${TRAFFIC_CHART_HEIGHT}`,
+    "Z"
+  ].join(" ");
 }
 
 async function copyText(value: string, successMessage: string) {
@@ -84,6 +113,9 @@ export function DashboardPage() {
   const status = useAppStore((s) => s.status);
   const addLog = useAppStore((s) => s.addLog);
   const [pendingAction, setPendingAction] = useState<PendingAction>("idle");
+  const [trafficHistory, setTrafficHistory] = useState<TrafficSample[]>(
+    Array.from({ length: TRAFFIC_HISTORY_LIMIT }, () => ({ download: 0, upload: 0 }))
+  );
 
   useEffect(() => {
     if (data) {
@@ -146,6 +178,25 @@ export function DashboardPage() {
   const totalData = totalDownload + totalUpload;
   const latencyValue = isConnected && typeof status?.latencyMs === "number" ? `${status.latencyMs} ms` : "--";
   const uptimeValue = isConnected ? formatUptime(status?.uptimeSeconds ?? 0) : "00:00:00";
+  const currentDownloadBps = isConnected ? status?.downloadBps ?? 0 : 0;
+  const currentUploadBps = isConnected ? status?.uploadBps ?? 0 : 0;
+
+  useEffect(() => {
+    setTrafficHistory((previous) => {
+      const next = [...previous, { download: currentDownloadBps, upload: currentUploadBps }];
+      return next.slice(-TRAFFIC_HISTORY_LIMIT);
+    });
+  }, [currentDownloadBps, currentUploadBps]);
+
+  const downloadSeries = trafficHistory.map((point) => point.download);
+  const uploadSeries = trafficHistory.map((point) => point.upload);
+  const chartMax = Math.max(...downloadSeries, ...uploadSeries, 1);
+  const downloadPoints = buildTrafficPoints(downloadSeries, chartMax);
+  const uploadPoints = buildTrafficPoints(uploadSeries, chartMax);
+  const downloadLine = downloadPoints.join(" ");
+  const uploadLine = uploadPoints.join(" ");
+  const downloadArea = buildTrafficArea(downloadPoints);
+  const uploadArea = buildTrafficArea(uploadPoints);
 
   const toggle = async () => {
     try {
@@ -323,7 +374,7 @@ export function DashboardPage() {
         </motion.div>
 
         <motion.div initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
-            <Card className="rounded-xl border border-border bg-panelAlt p-4 space-y-4">
+          <Card className="rounded-xl border border-border bg-panelAlt p-4 space-y-4">
             <div className="flex items-start justify-between gap-4 text-xs text-textMuted">
               <div>
                 <div>Delay</div>
@@ -338,8 +389,8 @@ export function DashboardPage() {
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div className="rounded-xl border border-border bg-panelAlt p-4">
                 <div className="flex items-center gap-2 text-lg font-semibold">
-                  <ArrowDown className="h-4 w-4 text-accent" />
-                  <span>{isConnected ? formatSpeed(status?.downloadBps ?? 0) : "0.0 KB/s"}</span>
+                  <ArrowDown className="h-4 w-4 text-success" />
+                  <span>{formatSpeed(currentDownloadBps)}</span>
                 </div>
                 <div className="mt-1 text-xs text-textMuted">
                   Down <span className="mx-1">•</span> {formatData(totalDownload)}
@@ -348,8 +399,8 @@ export function DashboardPage() {
 
               <div className="rounded-xl border border-border bg-panelAlt p-4">
                 <div className="flex items-center gap-2 text-lg font-semibold">
-                  <ArrowUp className="h-4 w-4 text-accent" />
-                  <span>{isConnected ? formatSpeed(status?.uploadBps ?? 0) : "0.0 KB/s"}</span>
+                  <ArrowUp className="h-4 w-4 text-danger" />
+                  <span>{formatSpeed(currentUploadBps)}</span>
                 </div>
                 <div className="mt-1 text-xs text-textMuted">
                   Up <span className="mx-1">•</span> {formatData(totalUpload)}
@@ -359,6 +410,60 @@ export function DashboardPage() {
               <div className="rounded-xl border border-border bg-panelAlt p-4">
                 <div className="text-lg font-semibold">{formatData(totalData)}</div>
                 <div className="mt-1 text-xs text-textMuted">Total</div>
+              </div>
+            </div>
+
+            <div className="rounded-xl border border-border bg-panel px-3 py-3">
+              <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-textMuted">
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-success" />
+                  <span>Down</span>
+                  <span className="text-success">{formatSpeed(currentDownloadBps)}</span>
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-danger" />
+                  <span>Up</span>
+                  <span className="text-danger">{formatSpeed(currentUploadBps)}</span>
+                </span>
+              </div>
+
+              <div className="overflow-hidden rounded-lg">
+                <svg
+                  viewBox={`0 0 ${TRAFFIC_CHART_WIDTH} ${TRAFFIC_CHART_HEIGHT}`}
+                  className="h-12 w-full"
+                  preserveAspectRatio="none"
+                  aria-label="Upload and download speed chart"
+                  role="img"
+                >
+                  <line
+                    x1="0"
+                    y1={TRAFFIC_CHART_HEIGHT - 0.5}
+                    x2={TRAFFIC_CHART_WIDTH}
+                    y2={TRAFFIC_CHART_HEIGHT - 0.5}
+                    className="stroke-border"
+                    strokeWidth="1"
+                  />
+                  {downloadLine ? (
+                    <polyline
+                      fill="none"
+                      points={downloadLine}
+                      className="stroke-success/70"
+                      strokeWidth="1.5"
+                      strokeLinejoin="miter"
+                      strokeLinecap="butt"
+                    />
+                  ) : null}
+                  {uploadLine ? (
+                    <polyline
+                      fill="none"
+                      points={uploadLine}
+                      className="stroke-danger/70"
+                      strokeWidth="1.5"
+                      strokeLinejoin="miter"
+                      strokeLinecap="butt"
+                    />
+                  ) : null}
+                </svg>
               </div>
             </div>
           </Card>
