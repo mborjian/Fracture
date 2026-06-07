@@ -29,6 +29,11 @@ class PingTaskState:
     cancel_requested: bool = False
     mode: str | None = None
 
+
+FAILED_PING_MS = -1
+FAILED_SPEED_MBPS = 0.0
+
+
 class ProfilePingService:
     def __init__(
             self,
@@ -153,7 +158,7 @@ class ProfilePingService:
             self._probe_bridge_refs = 0
             await self._stop_probe_bridge_locked()
 
-    async def speed_profile(self, profile_id: str, timeout_s: float = 15.0) -> dict:
+    async def speed_profile(self, profile_id: str, timeout_s: float = 8.0) -> dict:
         profile = await fetch_profile_by_id(profile_id)
         if profile is None:
             raise ValueError("Profile not found")
@@ -163,6 +168,8 @@ class ProfilePingService:
         listener = await fetch_selected_cloudflare_listener()
         async with self._temporary_probe_bridge(core_settings, listener):
             result = await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s)
+        if not result["ok"]:
+            result["speedMBps"] = FAILED_SPEED_MBPS
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_speed_result(profile_id, result["speedMBps"], now_iso)
 
@@ -186,7 +193,7 @@ class ProfilePingService:
             )
         return payload
 
-    async def speed_all(self, profile_ids: list[str], timeout_s: float = 15.0) -> dict:
+    async def speed_all(self, profile_ids: list[str], timeout_s: float = 8.0) -> dict:
         async with self._lock:
             if self._state.running:
                 raise RuntimeError("Speed test is already running")
@@ -264,26 +271,26 @@ class ProfilePingService:
                 except Exception as exc:  # noqa: BLE001
                     now_iso = datetime.now(timezone.utc).isoformat()
                     if mode == "delay":
-                        await save_profile_ping_result(profile_id, None, now_iso, success=False)
+                        await save_profile_ping_result(profile_id, FAILED_PING_MS, now_iso, success=False)
                         await self._publish_event(
                             "ping",
                             {
                                 "profileId": profile_id,
                                 "ok": False,
-                                "latencyMs": None,
+                                "latencyMs": FAILED_PING_MS,
                                 "error": str(exc),
                                 "at": now_iso,
                             },
                         )
                         await self._emit_log("warning", f"delay profile={profile_id} failed: {exc}", trace=traceback.format_exc())
                     else:
-                        await save_profile_speed_result(profile_id, None, now_iso)
+                        await save_profile_speed_result(profile_id, FAILED_SPEED_MBPS, now_iso)
                         await self._publish_event(
                             "speed",
                             {
                                 "profileId": profile_id,
                                 "ok": False,
-                                "speedMBps": None,
+                                "speedMBps": FAILED_SPEED_MBPS,
                                 "error": str(exc),
                                 "at": now_iso,
                             },
@@ -403,17 +410,17 @@ class ProfilePingService:
                 latency_ms = probe_latency_via_socks5("127.0.0.1", runtime_instance.socks_port, timeout_s=timeout_s)
                 return {"ok": True, "latencyMs": max(1, int(latency_ms))}
             except Exception as exc:
-                return {"ok": False, "latencyMs": None, "error": str(exc)}
+                return {"ok": False, "latencyMs": FAILED_PING_MS, "error": str(exc)}
         # Else sing-box mode
         binary_path = settings.singbox_dir / self._runtime_service._binary_name("sing-box")
         if not binary_path.exists():
-            return {"ok": False, "latencyMs": None, "error": f"sing-box binary not found at {binary_path}"}
+            return {"ok": False, "latencyMs": FAILED_PING_MS, "error": f"sing-box binary not found at {binary_path}"}
         try:
             profile = self._probe_profile_for_transport(profile_record, routing, core_settings, listener)
             latency_ms = test_delay(profile, binary_path, routing=routing, timeout_s=timeout_s)
             return {"ok": True, "latencyMs": max(1, int(latency_ms))}
         except Exception as exc:
-            return {"ok": False, "latencyMs": None, "error": str(exc)}
+            return {"ok": False, "latencyMs": FAILED_PING_MS, "error": str(exc)}
 
     def _speed_probe_sync(
         self,
@@ -436,22 +443,22 @@ class ProfilePingService:
                 bytes_per_sec = measure_download_via_socks5("127.0.0.1", runtime_instance.socks_port, timeout_s=timeout_s)
                 return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
             except Exception as exc:
-                return {"ok": False, "speedMBps": None, "error": str(exc)}
+                return {"ok": False, "speedMBps": FAILED_SPEED_MBPS, "error": str(exc)}
         # Else sing-box mode
         binary_path = settings.singbox_dir / self._runtime_service._binary_name("sing-box")
         if not binary_path.exists():
-            return {"ok": False, "speedMBps": None, "error": f"sing-box binary not found at {binary_path}"}
+            return {"ok": False, "speedMBps": FAILED_SPEED_MBPS, "error": f"sing-box binary not found at {binary_path}"}
         try:
             profile = self._probe_profile_for_transport(profile_record, routing, core_settings, listener)
             bytes_per_sec = test_speed(
                 profile,
                 binary_path,
                 routing=routing,
-                seconds=max(0.8, min(timeout_s, 4.0)),
+                seconds=timeout_s,
             )
             return {"ok": True, "speedMBps": round(bytes_per_sec / (1024 * 1024), 2)}
         except Exception as exc:
-            return {"ok": False, "speedMBps": None, "error": str(exc)}
+            return {"ok": False, "speedMBps": FAILED_SPEED_MBPS, "error": str(exc)}
 
     def _probe_profile_for_transport(
         self,

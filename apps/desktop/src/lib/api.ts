@@ -92,7 +92,7 @@ export const api = {
         body: JSON.stringify({ timeout_ms: timeoutMs })
       }
     ),
-  speedProfile: (profileId: string, timeoutMs = 12000) =>
+  speedProfile: (profileId: string, timeoutMs = 8000) =>
     request<{ profileId: string; ok: boolean; speedMBps: number | null; error?: string; at: string }>(
       `/api/profiles/${profileId}/speed`,
       {
@@ -136,7 +136,7 @@ export const api = {
         body: JSON.stringify({ profile_ids: profileIds ?? null, timeout_ms: timeoutMs })
       }
     ),
-  speedAllProfiles: (profileIds?: string[], timeoutMs = 12000) =>
+  speedAllProfiles: (profileIds?: string[], timeoutMs = 8000) =>
     request<{ running: boolean; completed: number; successes: number; failures: number; cancelled: boolean }>(
       "/api/profiles/speed-all",
       {

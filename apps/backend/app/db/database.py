@@ -435,8 +435,8 @@ async def sort_profiles_by_ping() -> int:
 
         indexed.sort(
             key=lambda pair: (
-                pair[1].get("lastPingMs") is None,
-                int(pair[1].get("lastPingMs") or 10 ** 9),
+                pair[1].get("lastPingMs") is None or int(pair[1].get("lastPingMs") or -1) < 0,
+                int(pair[1].get("lastPingMs") or 10 ** 9) if int(pair[1].get("lastPingMs") or -1) >= 0 else 10 ** 9,
                 pair[0],
             )
         )

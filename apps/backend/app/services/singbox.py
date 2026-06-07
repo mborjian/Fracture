@@ -1024,6 +1024,7 @@ def start_profile(
     listen_host: str = "127.0.0.1",
     config_name: str = "config.json",
     enable_clash_api: bool = False,
+    startup_timeout: float = 15.0,
 ) -> RunningInstance:
     workdir = Path(tempfile.mkdtemp(prefix="fracture_singbox_", dir=settings.configs_dir.as_posix()))
     config_path = workdir / config_name
@@ -1062,7 +1063,7 @@ def start_profile(
         stderr_path=stderr_path,
     )
     try:
-        wait_until_port(instance.readiness_host, http_port, timeout=15.0, process=process, instance=instance)
+        wait_until_port(instance.readiness_host, http_port, timeout=startup_timeout, process=process, instance=instance)
     except Exception:
         stop_instance(instance)
         raise
@@ -1137,6 +1138,7 @@ def acquire_warm_instance(
     listen_host: str = "127.0.0.1",
     config_name: str = "config.json",
     enable_clash_api: bool = False,
+    startup_timeout: float = 15.0,
 ) -> RunningInstance:
     key = _profile_cache_key(profile, routing, listen_host)
     with _WARM_INSTANCES_LOCK:
@@ -1157,6 +1159,7 @@ def acquire_warm_instance(
         listen_host=listen_host,
         config_name=config_name,
         enable_clash_api=enable_clash_api,
+        startup_timeout=startup_timeout,
     )
 
     with _WARM_INSTANCES_LOCK:
@@ -1216,6 +1219,7 @@ def test_delay(
     routing: dict[str, Any] | None = None,
     timeout_s: float = 8.0,
 ) -> float:
+    deadline = time.monotonic() + max(timeout_s, 0.5)
     socks_port = pick_free_port()
     http_port = pick_free_port()
     instance = acquire_warm_instance(
@@ -1227,8 +1231,12 @@ def test_delay(
         DEFAULT_TUN_NAME,
         routing=routing,
         config_name="delay.json",
+        startup_timeout=max(0.5, deadline - time.monotonic()),
     )
-    return float(probe_latency_via_socks5("127.0.0.1", instance.socks_port, timeout_s=timeout_s))
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Delay test timed out after 8 seconds")
+    return float(probe_latency_via_socks5("127.0.0.1", instance.socks_port, timeout_s=remaining))
 
 
 def test_speed(
@@ -1237,6 +1245,7 @@ def test_speed(
     routing: dict[str, Any] | None = None,
     seconds: float = 8.0,
 ) -> float:
+    deadline = time.monotonic() + max(seconds, 0.5)
     socks_port = pick_free_port()
     http_port = pick_free_port()
     instance = acquire_warm_instance(
@@ -1248,5 +1257,9 @@ def test_speed(
         DEFAULT_TUN_NAME,
         routing=routing,
         config_name="speed.json",
+        startup_timeout=max(0.5, deadline - time.monotonic()),
     )
-    return float(measure_download_via_socks5("127.0.0.1", instance.socks_port, timeout_s=seconds))
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        raise TimeoutError("Speed test timed out after 8 seconds")
+    return float(measure_download_via_socks5("127.0.0.1", instance.socks_port, timeout_s=remaining))
