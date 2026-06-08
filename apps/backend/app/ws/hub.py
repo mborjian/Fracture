@@ -8,6 +8,8 @@ from uuid import uuid4
 
 from fastapi import WebSocket
 
+SEND_TIMEOUT_SECONDS = 1.0
+
 
 class WsEventHub:
     def __init__(self) -> None:
@@ -35,12 +37,14 @@ class WsEventHub:
             sockets = list(self._connections)
         message = json.dumps({"type": event_type, "payload": payload}, ensure_ascii=True)
 
-        stale: list[WebSocket] = []
-        for socket in sockets:
+        async def send(socket: WebSocket) -> WebSocket | None:
             try:
-                await socket.send_text(message)
+                await asyncio.wait_for(socket.send_text(message), timeout=SEND_TIMEOUT_SECONDS)
             except Exception:  # noqa: BLE001
-                stale.append(socket)
+                return socket
+            return None
+
+        stale = [socket for socket in await asyncio.gather(*(send(socket) for socket in sockets)) if socket is not None]
 
         if stale:
             async with self._lock:

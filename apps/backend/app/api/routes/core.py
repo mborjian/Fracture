@@ -5,6 +5,7 @@ from pydantic import BaseModel
 
 from app.db.database import fetch_core_settings, fetch_routing_config
 from app.services.profiles import list_profiles
+from app.services.ping import ProfilePingService
 from app.services.runtime import CoreRuntimeService
 from app.services.transport import manager as transport_manager
 
@@ -19,6 +20,10 @@ def _runtime_service(request: Request) -> CoreRuntimeService:
     return request.app.state.runtime_service
 
 
+def _ping_service(request: Request) -> ProfilePingService:
+    return request.app.state.ping_service
+
+
 @router.get("/status")
 async def core_status(request: Request) -> dict:
     runtime_service = _runtime_service(request)
@@ -28,6 +33,7 @@ async def core_status(request: Request) -> dict:
 @router.post("/start")
 async def core_start(payload: StartPayload, request: Request) -> dict:
     runtime_service = _runtime_service(request)
+    ping_service = _ping_service(request)
 
     profile_id = payload.profile_id
     if profile_id is None:
@@ -44,6 +50,7 @@ async def core_start(payload: StartPayload, request: Request) -> dict:
     core_settings = await fetch_core_settings()
     runtime = "tcp-inject" if core_settings.get("transportMode") == "tcp-inject" else "sing-box"
 
+    await ping_service.cancel_active_tests()
     status = await runtime_service.start(runtime, profile_id)
     if status.get("state") != "running" or not status.get("ready", False):
         detail = status.get("lastError") or "Failed to start runtime"

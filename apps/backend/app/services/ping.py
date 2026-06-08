@@ -49,6 +49,7 @@ class ProfilePingService:
         self._probe_bridge_lock = asyncio.Lock()
         self._probe_bridge_refs = 0
         self._probe_bridge_server: asyncio.Server | None = None
+        self._active_probes = 0
 
     async def _emit_log(self, level: str, message: str, *, source: str = "ping", trace: str | None = None) -> None:
         now = datetime.now(timezone.utc)
@@ -74,6 +75,16 @@ class ProfilePingService:
             if self._state.running:
                 raise RuntimeError(self._running_conflict_message(requested_mode))
 
+    @contextlib.asynccontextmanager
+    async def _track_probe(self):
+        async with self._lock:
+            self._active_probes += 1
+        try:
+            yield
+        finally:
+            async with self._lock:
+                self._active_probes = max(0, self._active_probes - 1)
+
     async def _run_probe_with_timeout(self, operation: Callable[[], Awaitable[dict]], timeout_s: float, mode: str) -> dict:
         effective_timeout = max(0.5, timeout_s) + 0.25
         try:
@@ -97,7 +108,8 @@ class ProfilePingService:
             async with self._temporary_probe_bridge(core_settings, listener):
                 return await asyncio.to_thread(self._delay_probe_sync, profile, routing, core_settings, listener, timeout_s)
 
-        result = await self._run_probe_with_timeout(operation, timeout_s, "delay")
+        async with self._track_probe():
+            result = await self._run_probe_with_timeout(operation, timeout_s, "delay")
         now_iso = datetime.now(timezone.utc).isoformat()
         await save_profile_ping_result(
             profile_id,
@@ -170,18 +182,30 @@ class ProfilePingService:
 
     async def cancel_ping_all(self) -> dict:
         async with self._lock:
-            if not self._state.running:
+            if not self._state.running and self._active_probes == 0:
                 return {"ok": False, "message": "No bulk test job is running"}
-            self._state.cancel_requested = True
-            return {"ok": True}
-
-    async def shutdown(self) -> None:
-        async with self._lock:
             self._state.cancel_requested = True
         await asyncio.to_thread(stop_all_warm_instances)
         async with self._probe_bridge_lock:
             self._probe_bridge_refs = 0
             await self._stop_probe_bridge_locked()
+        return {"ok": True}
+
+    async def cancel_active_tests(self) -> bool:
+        async with self._lock:
+            had_work = self._state.running or self._active_probes > 0
+            self._state.cancel_requested = True
+        if not had_work:
+            return False
+        await asyncio.to_thread(stop_all_warm_instances)
+        async with self._probe_bridge_lock:
+            self._probe_bridge_refs = 0
+            await self._stop_probe_bridge_locked()
+        await self._emit_log("info", "active tests cancelled", source="ping")
+        return True
+
+    async def shutdown(self) -> None:
+        await self.cancel_active_tests()
 
     async def speed_profile(self, profile_id: str, timeout_s: float = 8.0, *, allow_while_batch: bool = False) -> dict:
         if not allow_while_batch:
@@ -197,7 +221,8 @@ class ProfilePingService:
             async with self._temporary_probe_bridge(core_settings, listener):
                 return await asyncio.to_thread(self._speed_probe_sync, profile, routing, core_settings, listener, timeout_s)
 
-        result = await self._run_probe_with_timeout(operation, timeout_s, "speed")
+        async with self._track_probe():
+            result = await self._run_probe_with_timeout(operation, timeout_s, "speed")
         if not result["ok"]:
             result["speedMBps"] = FAILED_SPEED_MBPS
         now_iso = datetime.now(timezone.utc).isoformat()

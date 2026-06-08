@@ -234,6 +234,7 @@ export function DashboardPage() {
             });
           });
         setPendingAction("connecting");
+        await api.cancelActiveTests().catch(() => undefined);
         await ensureBackendAvailable();
         const next = await api.start(status?.activeProfileId ?? null);
         if (next.state !== "running" || !next.ready) {

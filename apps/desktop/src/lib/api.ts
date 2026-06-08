@@ -182,6 +182,10 @@ export const api = {
     request<{ ok: boolean; message?: string }>("/api/profiles/ping-all/cancel", {
       method: "POST"
     }),
+  cancelActiveTests: () =>
+    request<{ ok: boolean; message?: string }>("/api/profiles/ping-all/cancel", {
+      method: "POST"
+    }),
 
   cloudflareConfig: () => request<CloudflareConfig>("/api/settings/cloudflare"),
   saveCloudflareConfig: (payload: CloudflareConfig) =>

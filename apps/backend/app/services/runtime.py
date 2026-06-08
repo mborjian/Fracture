@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 TCP_INJECT_LISTEN_HOST = "0.0.0.0"
 TCP_INJECT_LISTEN_PORT = 40443
 TCP_INJECT_CONNECT_PORT = 443
+STOP_TIMEOUT_SECONDS = 6.0
 
 
 @dataclass
@@ -198,7 +199,10 @@ class CoreRuntimeService:
 
     async def stop(self) -> dict:
         async with self._lock:
-            await self._stop_runtime_locked()
+            try:
+                await asyncio.wait_for(self._stop_runtime_locked(), timeout=STOP_TIMEOUT_SECONDS)
+            except asyncio.TimeoutError:
+                await self._emit_log_locked("warning", "runtime stop timed out; forcing final state to stopped")
             self._status.state = "stopped"
             self._status.started_at = None
             self._status.latency_ms = None
@@ -219,7 +223,8 @@ class CoreRuntimeService:
 
     async def shutdown(self) -> None:
         async with self._lock:
-            await self._stop_runtime_locked()
+            with contextlib.suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self._stop_runtime_locked(), timeout=STOP_TIMEOUT_SECONDS)
         await asyncio.to_thread(stop_all_warm_instances)
 
     async def restart(self, reason: str = "manual") -> dict:
@@ -468,8 +473,13 @@ class CoreRuntimeService:
                 await self._sampler_task
             self._sampler_task = None
 
-        await self._cleanup_instance_locked()
-        await self._restore_system_proxy_locked()
+        await asyncio.to_thread(stop_all_warm_instances)
+        cleanup_task = asyncio.create_task(self._cleanup_instance_locked())
+        restore_task = asyncio.create_task(self._restore_system_proxy_locked())
+        results = await asyncio.gather(cleanup_task, restore_task, return_exceptions=True)
+        for result in results:
+            if isinstance(result, Exception):
+                raise result
 
     async def _stop_bridge_locked(self) -> None:
         server = self._bridge_server
@@ -583,17 +593,6 @@ class CoreRuntimeService:
             self._last_counter_rx = rx
             self._last_counter_tx = tx
 
-        if self._status.egress_ip is None:
-            self._session_baseline_rx = rx
-            self._session_baseline_tx = tx
-            self._last_counter_rx = rx
-            self._last_counter_tx = tx
-            self._status.session_download_bytes = 0
-            self._status.session_upload_bytes = 0
-            self._status.download_bps = 0
-            self._status.upload_bps = 0
-            return True
-
         self._status.session_download_bytes = max(rx - self._session_baseline_rx, 0)
         self._status.session_upload_bytes = max(tx - self._session_baseline_tx, 0)
         if elapsed > 0:
@@ -650,9 +649,7 @@ class CoreRuntimeService:
                 elapsed = 0.0 if self._last_sample_monotonic is None else max(0.0, now - self._last_sample_monotonic)
                 self._last_sample_monotonic = now
                 await self._refresh_runtime_metadata_locked()
-                if self._status.egress_ip is None:
-                    self._reset_network_counters_locked()
-                elif not self._update_network_counters_locked(elapsed):
+                if not self._update_network_counters_locked(elapsed):
                     down, up = await asyncio.to_thread(self._read_singbox_traffic_delta)
                     if down is not None and up is not None and elapsed > 0:
                         self._status.download_bps = down / elapsed
@@ -678,7 +675,7 @@ class CoreRuntimeService:
                 payload = await asyncio.to_thread(fetch_egress_via_socks5, "127.0.0.1", socks_port)
             except Exception as exc:  # noqa: BLE001
                 await self._emit_log_locked(
-                    "warning",
+                    "debug",
                     f"egress lookup via socks5 failed: {exc}",
                     trace=traceback.format_exc(),
                 )

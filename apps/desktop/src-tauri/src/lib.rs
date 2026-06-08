@@ -472,6 +472,17 @@ fn kill_backend_port_owners() {}
 
 fn terminate_backend_child(mut child: Child) {
     let _ = call_local_api("POST", "/api/core/stop", "{}");
+    let graceful_deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+    while std::time::Instant::now() < graceful_deadline {
+        match child.try_wait() {
+            Ok(Some(_)) => {
+                kill_backend_port_owners();
+                return;
+            }
+            Ok(None) => thread::sleep(std::time::Duration::from_millis(150)),
+            Err(_) => break,
+        }
+    }
 
     #[cfg(windows)]
     {
