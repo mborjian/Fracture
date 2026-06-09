@@ -17,6 +17,7 @@ import { useCoreStatusQuery, useProfilesQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { useAppStore } from "@/store/useAppStore";
 type TrafficSample = { download: number; upload: number };
+type ChartPoint = { x: number; y: number };
 
 const TRAFFIC_HISTORY_LIMIT = 48;
 const TRAFFIC_CHART_WIDTH = 720;
@@ -51,26 +52,45 @@ function formatUptime(totalSeconds: number) {
   return [hours, minutes, seconds].map((part) => String(part).padStart(2, "0")).join(":");
 }
 
-function buildTrafficPoints(values: number[], maxValue: number) {
+function buildTrafficPoints(values: number[], maxValue: number): ChartPoint[] {
   const innerHeight = TRAFFIC_CHART_HEIGHT - TRAFFIC_CHART_PADDING * 2;
   return values.map((value, index) => {
     const x = values.length > 1 ? (index / (values.length - 1)) * TRAFFIC_CHART_WIDTH : TRAFFIC_CHART_WIDTH / 2;
     const ratio = maxValue > 0 ? value / maxValue : 0;
     const y = TRAFFIC_CHART_HEIGHT - TRAFFIC_CHART_PADDING - ratio * innerHeight;
-    return `${x},${y}`;
+    return { x, y };
   });
 }
 
-function buildTrafficArea(points: string[]) {
+function buildTrafficPath(points: ChartPoint[]) {
   if (points.length === 0) {
     return "";
   }
+  if (points.length === 1) {
+    const { x, y } = points[0];
+    return `M ${x},${y}`;
+  }
+
+  let path = `M ${points[0].x},${points[0].y}`;
+  for (let index = 0; index < points.length - 1; index += 1) {
+    const current = points[index];
+    const next = points[index + 1];
+    const controlX = (current.x + next.x) / 2;
+    path += ` C ${controlX},${current.y} ${controlX},${next.y} ${next.x},${next.y}`;
+  }
+  return path;
+}
+
+function buildTrafficArea(path: string, points: ChartPoint[]) {
+  if (!path || points.length === 0) {
+    return "";
+  }
+  const first = points[0];
   return [
-    `M ${points[0]}`,
-    ...points.slice(1).map((point) => `L ${point}`),
+    path,
     `L ${TRAFFIC_CHART_WIDTH},${TRAFFIC_CHART_HEIGHT}`,
-    `L 0,${TRAFFIC_CHART_HEIGHT}`,
-    "Z"
+    `L ${first.x},${TRAFFIC_CHART_HEIGHT}`,
+    "Z",
   ].join(" ");
 }
 
@@ -175,21 +195,34 @@ export function DashboardPage() {
   const currentUploadBps = isConnected ? status?.uploadBps ?? 0 : 0;
 
   useEffect(() => {
-    setTrafficHistory((previous) => {
-      const next = [...previous, { download: currentDownloadBps, upload: currentUploadBps }];
-      return next.slice(-TRAFFIC_HISTORY_LIMIT);
-    });
-  }, [currentDownloadBps, currentUploadBps]);
+    if (!isConnected) {
+      setTrafficHistory(Array.from({ length: TRAFFIC_HISTORY_LIMIT }, () => ({ download: 0, upload: 0 })));
+      return;
+    }
+
+    const appendSample = () => {
+      setTrafficHistory((previous) => {
+        const next = [...previous, { download: currentDownloadBps, upload: currentUploadBps }];
+        return next.slice(-TRAFFIC_HISTORY_LIMIT);
+      });
+    };
+
+    appendSample();
+    const intervalId = window.setInterval(appendSample, 1000);
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [currentDownloadBps, currentUploadBps, isConnected]);
 
   const downloadSeries = trafficHistory.map((point) => point.download);
   const uploadSeries = trafficHistory.map((point) => point.upload);
   const chartMax = Math.max(...downloadSeries, ...uploadSeries, 1);
   const downloadPoints = buildTrafficPoints(downloadSeries, chartMax);
   const uploadPoints = buildTrafficPoints(uploadSeries, chartMax);
-  const downloadLine = downloadPoints.join(" ");
-  const uploadLine = uploadPoints.join(" ");
-  const downloadArea = buildTrafficArea(downloadPoints);
-  const uploadArea = buildTrafficArea(uploadPoints);
+  const downloadLine = buildTrafficPath(downloadPoints);
+  const uploadLine = buildTrafficPath(uploadPoints);
+  const downloadArea = buildTrafficArea(downloadLine, downloadPoints);
+  const uploadArea = buildTrafficArea(uploadLine, uploadPoints);
 
   const toggle = async () => {
     try {
@@ -427,9 +460,9 @@ export function DashboardPage() {
                   {downloadLine ? (
                     <>
                       <path d={downloadArea} fill={TRAFFIC_DOWNLOAD_FILL} />
-                      <polyline
+                      <path
+                        d={downloadLine}
                         fill="none"
-                        points={downloadLine}
                         stroke={TRAFFIC_DOWNLOAD_STROKE}
                         strokeOpacity="0.85"
                         strokeWidth="1.5"
@@ -441,9 +474,9 @@ export function DashboardPage() {
                   {uploadLine ? (
                     <>
                       <path d={uploadArea} fill={TRAFFIC_UPLOAD_FILL} />
-                      <polyline
+                      <path
+                        d={uploadLine}
                         fill="none"
-                        points={uploadLine}
                         stroke={TRAFFIC_UPLOAD_STROKE}
                         strokeOpacity="0.8"
                         strokeWidth="1.5"
