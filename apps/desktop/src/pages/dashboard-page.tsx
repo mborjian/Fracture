@@ -8,7 +8,7 @@ import {
   Square,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -23,10 +23,15 @@ const TRAFFIC_HISTORY_LIMIT = 48;
 const TRAFFIC_CHART_WIDTH = 720;
 const TRAFFIC_CHART_HEIGHT = 46;
 const TRAFFIC_CHART_PADDING = 10;
+const TRAFFIC_SAMPLE_INTERVAL_MS = 500;
 const TRAFFIC_DOWNLOAD_STROKE = "var(--color-success)";
 const TRAFFIC_UPLOAD_STROKE = "var(--color-danger)";
 const TRAFFIC_DOWNLOAD_FILL = "color-mix(in srgb, var(--color-success) 16%, transparent)";
 const TRAFFIC_UPLOAD_FILL = "color-mix(in srgb, var(--color-danger) 14%, transparent)";
+
+function createEmptyTrafficHistory() {
+  return Array.from({ length: TRAFFIC_HISTORY_LIMIT }, () => ({ download: 0, upload: 0 }));
+}
 
 function formatSpeed(value: number) {
   if (value >= 1024 * 1024) {
@@ -136,9 +141,8 @@ export function DashboardPage() {
   const addLog = useAppStore((s) => s.addLog);
   const pendingAction = useAppStore((s) => s.pendingConnectionAction);
   const setPendingAction = useAppStore((s) => s.setPendingConnectionAction);
-  const [trafficHistory, setTrafficHistory] = useState<TrafficSample[]>(
-    Array.from({ length: TRAFFIC_HISTORY_LIMIT }, () => ({ download: 0, upload: 0 }))
-  );
+  const [trafficHistory, setTrafficHistory] = useState<TrafficSample[]>(createEmptyTrafficHistory);
+  const [chartShiftToken, setChartShiftToken] = useState(0);
 
   useEffect(() => {
     if (data) {
@@ -193,26 +197,37 @@ export function DashboardPage() {
   const uptimeValue = isConnected ? formatUptime(status?.uptimeSeconds ?? 0) : "00:00:00";
   const currentDownloadBps = isConnected ? status?.downloadBps ?? 0 : 0;
   const currentUploadBps = isConnected ? status?.uploadBps ?? 0 : 0;
+  const latestTrafficRef = useRef<TrafficSample>({ download: 0, upload: 0 });
+
+  useEffect(() => {
+    latestTrafficRef.current = {
+      download: currentDownloadBps,
+      upload: currentUploadBps,
+    };
+  }, [currentDownloadBps, currentUploadBps]);
 
   useEffect(() => {
     if (!isConnected) {
-      setTrafficHistory(Array.from({ length: TRAFFIC_HISTORY_LIMIT }, () => ({ download: 0, upload: 0 })));
+      latestTrafficRef.current = { download: 0, upload: 0 };
+      setTrafficHistory(createEmptyTrafficHistory());
+      setChartShiftToken(0);
       return;
     }
 
     const appendSample = () => {
       setTrafficHistory((previous) => {
-        const next = [...previous, { download: currentDownloadBps, upload: currentUploadBps }];
+        const next = [...previous, latestTrafficRef.current];
         return next.slice(-TRAFFIC_HISTORY_LIMIT);
       });
+      setChartShiftToken((value) => value + 1);
     };
 
     appendSample();
-    const intervalId = window.setInterval(appendSample, 1000);
+    const intervalId = window.setInterval(appendSample, TRAFFIC_SAMPLE_INTERVAL_MS);
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [currentDownloadBps, currentUploadBps, isConnected]);
+  }, [isConnected]);
 
   const downloadSeries = trafficHistory.map((point) => point.download);
   const uploadSeries = trafficHistory.map((point) => point.upload);
@@ -223,6 +238,7 @@ export function DashboardPage() {
   const uploadLine = buildTrafficPath(uploadPoints);
   const downloadArea = buildTrafficArea(downloadLine, downloadPoints);
   const uploadArea = buildTrafficArea(uploadLine, uploadPoints);
+  const chartStepWidth = TRAFFIC_HISTORY_LIMIT > 1 ? TRAFFIC_CHART_WIDTH / (TRAFFIC_HISTORY_LIMIT - 1) : 0;
 
   const toggle = async () => {
     try {
@@ -457,34 +473,41 @@ export function DashboardPage() {
                     className="stroke-border"
                     strokeWidth="1"
                   />
-                  {downloadLine ? (
-                    <>
-                      <path d={downloadArea} fill={TRAFFIC_DOWNLOAD_FILL} />
-                      <path
-                        d={downloadLine}
-                        fill="none"
-                        stroke={TRAFFIC_DOWNLOAD_STROKE}
-                        strokeOpacity="0.85"
-                        strokeWidth="1.5"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                      />
-                    </>
-                  ) : null}
-                  {uploadLine ? (
-                    <>
-                      <path d={uploadArea} fill={TRAFFIC_UPLOAD_FILL} />
-                      <path
-                        d={uploadLine}
-                        fill="none"
-                        stroke={TRAFFIC_UPLOAD_STROKE}
-                        strokeOpacity="0.8"
-                        strokeWidth="1.5"
-                        strokeLinejoin="round"
-                        strokeLinecap="round"
-                      />
-                    </>
-                  ) : null}
+                  <motion.g
+                    key={chartShiftToken}
+                    initial={{ x: chartStepWidth }}
+                    animate={{ x: 0 }}
+                    transition={{ duration: TRAFFIC_SAMPLE_INTERVAL_MS / 1000, ease: "linear" }}
+                  >
+                    {downloadLine ? (
+                      <>
+                        <path d={downloadArea} fill={TRAFFIC_DOWNLOAD_FILL} />
+                        <path
+                          d={downloadLine}
+                          fill="none"
+                          stroke={TRAFFIC_DOWNLOAD_STROKE}
+                          strokeOpacity="0.85"
+                          strokeWidth="1.5"
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
+                        />
+                      </>
+                    ) : null}
+                    {uploadLine ? (
+                      <>
+                        <path d={uploadArea} fill={TRAFFIC_UPLOAD_FILL} />
+                        <path
+                          d={uploadLine}
+                          fill="none"
+                          stroke={TRAFFIC_UPLOAD_STROKE}
+                          strokeOpacity="0.8"
+                          strokeWidth="1.5"
+                          strokeLinejoin="round"
+                          strokeLinecap="round"
+                        />
+                      </>
+                    ) : null}
+                  </motion.g>
                 </svg>
               </div>
             </div>
