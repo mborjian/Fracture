@@ -34,9 +34,9 @@ class RoutingPayload(BaseModel):
     fakeIpCidr: str = Field(default="198.18.0.0/15")
     bypassDomains: str = Field(default="*.lan,*.local,*.msftconnecttest.com")
     routingRules: str = Field(default="geoip:private -> direct\ngeosite:ads -> block")
-    tunMode: bool = True
+    tunMode: bool = False
     tunReason: str = Field(default="TUN mode uses sing-box and may require Administrator privileges on Windows.")
-    outboundMode: str = Field(default="tun")
+    outboundMode: str = Field(default="proxy")
 
 
 class CoreSettingsPayload(BaseModel):
@@ -114,7 +114,12 @@ async def update_ui_settings(payload: UiSettingsPayload) -> dict:
 
 @router.get("/tunnel-support")
 async def tunnel_support() -> dict:
+    supported = CoreRuntimeService._has_admin_privileges()
     return {
-        "supported": True,
-        "reason": "TUN mode is provided by sing-box. Run Fracture with Administrator privileges on Windows when needed.",
+        "supported": supported,
+        "reason": (
+            "TUN mode is provided by sing-box."
+            if supported
+            else "TUN mode requires Administrator privileges on Windows. Restart Fracture as Administrator to enable it."
+        ),
     }

@@ -32,9 +32,9 @@ _DEFAULT_APP_SETTINGS_DOC: dict[str, Any] = {
         "fakeIpCidr": "198.18.0.0/15",
         "bypassDomains": "*.lan,*.local,*.msftconnecttest.com",
         "routingRules": "geoip:private -> direct\ngeosite:ads -> block",
-        "tunMode": True,
+        "tunMode": False,
         "tunReason": "TUN mode uses sing-box and may require Administrator privileges on Windows.",
-        "outboundMode": "tun",
+        "outboundMode": "proxy",
     },
     "core": {
         "proxyScope": "local",

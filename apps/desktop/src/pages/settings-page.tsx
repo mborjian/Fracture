@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Switch } from "@/components/ui/switch"
-import { useCloudflareConfigQuery, useCoreSettingsQuery, useRoutingConfigQuery, useUiSettingsQuery } from "@/hooks/useBackendQuery";
+import { useCloudflareConfigQuery, useCoreSettingsQuery, useRoutingConfigQuery, useTunnelSupportQuery, useUiSettingsQuery } from "@/hooks/useBackendQuery";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/cn";
 import type { CloudflareConfig, CloudflareListener, CoreSettings, RoutingConfig, UiSettings } from "@/types";
@@ -36,9 +36,9 @@ const DEFAULT_ROUTING: RoutingConfig = {
   fakeIpCidr: "198.18.0.0/15",
   bypassDomains: "*.lan,*.local,*.msftconnecttest.com",
   routingRules: "geoip:private -> direct\ngeosite:ads -> block",
-  tunMode: true,
+  tunMode: false,
   tunReason: "TUN mode uses sing-box and may require Administrator privileges on Windows.",
-  outboundMode: "tun"
+  outboundMode: "proxy"
 };
 
 const DEFAULT_LISTENER: CloudflareListener = {
@@ -85,6 +85,7 @@ export function SettingsPage() {
   const { data: cloudflareData, refetch: refetchCloudflare } = useCloudflareConfigQuery();
   const { data: coreData, refetch: refetchCore } = useCoreSettingsQuery();
   const { data: routingData, refetch: refetchRouting } = useRoutingConfigQuery();
+  const { data: tunnelSupport } = useTunnelSupportQuery();
   const { data: uiData, refetch: refetchUi } = useUiSettingsQuery();
 
   const [cloudflareDraft, setCloudflareDraft] = useState<CloudflareConfig>(DEFAULT_CLOUDFLARE);
@@ -282,6 +283,14 @@ export function SettingsPage() {
     }
     setSavingRouting(true);
     try {
+      if (nextRouting.tunMode && tunnelSupport?.supported === false) {
+        setRoutingDraft((current) => ({
+          ...current,
+          tunMode: false,
+          outboundMode: "proxy"
+        }));
+        throw new Error(tunnelSupport.reason);
+      }
       const saved = await api.saveRoutingConfig(nextRouting);
       const normalized = {
         ...DEFAULT_ROUTING,
@@ -458,8 +467,12 @@ export function SettingsPage() {
 
               <Switch
                 checked={routingDraft.tunMode}
-                disabled={savingRouting}
+                disabled={savingRouting || tunnelSupport?.supported === false}
                 onCheckedChange={(checked) => {
+                  if (checked && tunnelSupport?.supported === false) {
+                    toast.error(tunnelSupport.reason);
+                    return;
+                  }
                   void saveRoutingSettings({
                     ...routingDraft,
                     tunMode: checked,
@@ -468,6 +481,9 @@ export function SettingsPage() {
                 }}
               />
             </label>
+            {tunnelSupport?.supported === false ? (
+              <p className="mb-3 text-xs text-warning">{tunnelSupport.reason}</p>
+            ) : null}
 
             <label className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 mb-3 text-sm">
               <div>
