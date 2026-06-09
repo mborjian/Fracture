@@ -24,7 +24,7 @@ from app.db.database import (
     fetch_profile_by_id,
     fetch_routing_config,
 )
-from app.services.curl_socks import curl_available, fetch_egress_via_socks5, probe_latency_via_socks5
+from app.services.curl_socks import EgressLookupError, curl_available, fetch_egress_via_socks5, probe_latency_via_socks5
 from app.services.network_counters import total_rxtx_bytes
 from app.services.singbox import (
     DEFAULT_TUN_NAME,
@@ -699,6 +699,8 @@ class CoreRuntimeService:
         if socks_port and curl_available():
             try:
                 payload = await asyncio.to_thread(fetch_egress_via_socks5, "127.0.0.1", socks_port)
+            except EgressLookupError as exc:
+                await self._emit_log_locked("debug", str(exc))
             except Exception as exc:  # noqa: BLE001
                 await self._emit_log_locked(
                     "debug",

@@ -22,6 +22,10 @@ const TRAFFIC_HISTORY_LIMIT = 48;
 const TRAFFIC_CHART_WIDTH = 720;
 const TRAFFIC_CHART_HEIGHT = 46;
 const TRAFFIC_CHART_PADDING = 10;
+const TRAFFIC_DOWNLOAD_STROKE = "var(--color-success)";
+const TRAFFIC_UPLOAD_STROKE = "var(--color-danger)";
+const TRAFFIC_DOWNLOAD_FILL = "color-mix(in srgb, var(--color-success) 16%, transparent)";
+const TRAFFIC_UPLOAD_FILL = "color-mix(in srgb, var(--color-danger) 14%, transparent)";
 
 function formatSpeed(value: number) {
   if (value >= 1024 * 1024) {
@@ -404,19 +408,6 @@ export function DashboardPage() {
             </div>
 
             <div className="rounded-xl border border-border bg-panel px-3 py-3">
-              <div className="mb-3 flex flex-wrap items-center gap-4 text-xs text-textMuted">
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-success" />
-                  <span>Down</span>
-                  <span className="text-success">{formatSpeed(currentDownloadBps)}</span>
-                </span>
-                <span className="inline-flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-danger" />
-                  <span>Up</span>
-                  <span className="text-danger">{formatSpeed(currentUploadBps)}</span>
-                </span>
-              </div>
-
               <div className="overflow-hidden rounded-lg">
                 <svg
                   viewBox={`0 0 ${TRAFFIC_CHART_WIDTH} ${TRAFFIC_CHART_HEIGHT}`}
@@ -434,24 +425,32 @@ export function DashboardPage() {
                     strokeWidth="1"
                   />
                   {downloadLine ? (
-                    <polyline
-                      fill="none"
-                      points={downloadLine}
-                      className="stroke-success/70"
-                      strokeWidth="1.5"
-                      strokeLinejoin="miter"
-                      strokeLinecap="butt"
-                    />
+                    <>
+                      <path d={downloadArea} fill={TRAFFIC_DOWNLOAD_FILL} />
+                      <polyline
+                        fill="none"
+                        points={downloadLine}
+                        stroke={TRAFFIC_DOWNLOAD_STROKE}
+                        strokeOpacity="0.85"
+                        strokeWidth="1.5"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                      />
+                    </>
                   ) : null}
                   {uploadLine ? (
-                    <polyline
-                      fill="none"
-                      points={uploadLine}
-                      className="stroke-danger/70"
-                      strokeWidth="1.5"
-                      strokeLinejoin="miter"
-                      strokeLinecap="butt"
-                    />
+                    <>
+                      <path d={uploadArea} fill={TRAFFIC_UPLOAD_FILL} />
+                      <polyline
+                        fill="none"
+                        points={uploadLine}
+                        stroke={TRAFFIC_UPLOAD_STROKE}
+                        strokeOpacity="0.8"
+                        strokeWidth="1.5"
+                        strokeLinejoin="round"
+                        strokeLinecap="round"
+                      />
+                    </>
                   ) : null}
                 </svg>
               </div>

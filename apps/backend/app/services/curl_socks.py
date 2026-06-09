@@ -34,6 +34,10 @@ class EgressResult:
     longitude: float | None = None
 
 
+class EgressLookupError(RuntimeError):
+    """Expected failure while resolving egress details through the SOCKS proxy."""
+
+
 def curl_available() -> bool:
     return shutil.which("curl") is not None
 
@@ -47,6 +51,7 @@ def socks5_endpoint(host: str, port: int) -> str:
 
 def fetch_egress_via_socks5(proxy_host: str, proxy_port: int, timeout_s: float = 8.0) -> EgressResult:
     socks = socks5_endpoint(proxy_host, proxy_port)
+    ipinfo_error: Exception | None = None
     try:
         payload = _run_curl_json(
             [
@@ -69,7 +74,10 @@ def fetch_egress_via_socks5(proxy_host: str, proxy_port: int, timeout_s: float =
             latitude=latitude,
             longitude=longitude,
         )
-    except Exception:
+    except Exception as exc:
+        ipinfo_error = exc
+
+    try:
         payload = _run_curl_json(
             [
                 "-sS",
@@ -90,6 +98,12 @@ def fetch_egress_via_socks5(proxy_host: str, proxy_port: int, timeout_s: float =
             latitude=_to_float(payload.get("lat")),
             longitude=_to_float(payload.get("lon")),
         )
+    except Exception as exc:
+        failures = []
+        if ipinfo_error is not None:
+            failures.append(f"ipinfo={short_curl_error(str(ipinfo_error))}")
+        failures.append(f"ip-api={short_curl_error(str(exc))}")
+        raise EgressLookupError(f"egress lookup unavailable ({', '.join(failures)})") from None
 
 
 def probe_latency_via_socks5(proxy_host: str, proxy_port: int, timeout_s: float = 15.0) -> int:

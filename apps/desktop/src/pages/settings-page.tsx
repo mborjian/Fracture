@@ -473,8 +473,7 @@ export function SettingsPage() {
               <div>
                 <div className="font-medium">Proxy Sharing</div>
                 <div className="text-xs text-textMuted">
-                  Allow other devices on your network to use Fracture, even while this
-                  device is using Full System Tunnel.
+                  Allow other devices on your network to use Fracture.
                 </div>
               </div>
 
