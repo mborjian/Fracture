@@ -494,7 +494,7 @@ export function DashboardPage() {
                     line={downloadLine}
                     stroke={TRAFFIC_DOWNLOAD_STROKE}
                     fill={TRAFFIC_DOWNLOAD_FILL}
-                    opacity={0.85}
+                    opacity={0.6}
                     chartShiftToken={chartShiftToken}
                     chartStepWidth={chartStepWidth}
                   />
@@ -515,7 +515,7 @@ export function DashboardPage() {
                     line={uploadLine}
                     stroke={TRAFFIC_UPLOAD_STROKE}
                     fill={TRAFFIC_UPLOAD_FILL}
-                    opacity={0.8}
+                    opacity={0.6}
                     chartShiftToken={chartShiftToken}
                     chartStepWidth={chartStepWidth}
                   />
