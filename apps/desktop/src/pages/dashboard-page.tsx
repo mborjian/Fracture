@@ -99,6 +99,63 @@ function buildTrafficArea(path: string, points: ChartPoint[]) {
   ].join(" ");
 }
 
+function TrafficSparkline({
+  area,
+  line,
+  stroke,
+  fill,
+  opacity,
+  chartShiftToken,
+  chartStepWidth,
+}: {
+  area: string;
+  line: string;
+  stroke: string;
+  fill: string;
+  opacity: number;
+  chartShiftToken: number;
+  chartStepWidth: number;
+}) {
+  return (
+    <svg
+      viewBox={`0 0 ${TRAFFIC_CHART_WIDTH} ${TRAFFIC_CHART_HEIGHT}`}
+      className="h-full w-full"
+      preserveAspectRatio="none"
+      aria-hidden="true"
+    >
+      <line
+        x1="0"
+        y1={TRAFFIC_CHART_HEIGHT - 0.5}
+        x2={TRAFFIC_CHART_WIDTH}
+        y2={TRAFFIC_CHART_HEIGHT - 0.5}
+        className="stroke-border/70"
+        strokeWidth="1"
+      />
+      <motion.g
+        key={chartShiftToken}
+        initial={{ x: chartStepWidth }}
+        animate={{ x: 0 }}
+        transition={{ duration: TRAFFIC_SAMPLE_INTERVAL_MS / 1000, ease: "linear" }}
+      >
+        {line ? (
+          <>
+            <path d={area} fill={fill} />
+            <path
+              d={line}
+              fill="none"
+              stroke={stroke}
+              strokeOpacity={opacity}
+              strokeWidth="1.5"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+            />
+          </>
+        ) : null}
+      </motion.g>
+    </svg>
+  );
+}
+
 async function copyText(value: string, successMessage: string) {
   try {
     await navigator.clipboard.writeText(value);
@@ -430,22 +487,44 @@ export function DashboardPage() {
             </div>
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <div className="rounded-xl border border-border bg-panelAlt p-4">
-                <div className="flex items-center gap-2 text-lg font-semibold">
+              <div className="relative overflow-hidden rounded-xl border border-border bg-panelAlt p-4">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 opacity-90">
+                  <TrafficSparkline
+                    area={downloadArea}
+                    line={downloadLine}
+                    stroke={TRAFFIC_DOWNLOAD_STROKE}
+                    fill={TRAFFIC_DOWNLOAD_FILL}
+                    opacity={0.85}
+                    chartShiftToken={chartShiftToken}
+                    chartStepWidth={chartStepWidth}
+                  />
+                </div>
+                <div className="relative z-10 flex items-center gap-2 text-lg font-semibold">
                   <ArrowDown className="h-4 w-4 text-success" />
                   <span>{formatSpeed(currentDownloadBps)}</span>
                 </div>
-                <div className="mt-1 text-xs text-textMuted">
+                <div className="relative z-10 mt-1 text-xs text-textMuted">
                   Down <span className="mx-1">•</span> {formatData(totalDownload)}
                 </div>
               </div>
 
-              <div className="rounded-xl border border-border bg-panelAlt p-4">
-                <div className="flex items-center gap-2 text-lg font-semibold">
+              <div className="relative overflow-hidden rounded-xl border border-border bg-panelAlt p-4">
+                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 opacity-90">
+                  <TrafficSparkline
+                    area={uploadArea}
+                    line={uploadLine}
+                    stroke={TRAFFIC_UPLOAD_STROKE}
+                    fill={TRAFFIC_UPLOAD_FILL}
+                    opacity={0.8}
+                    chartShiftToken={chartShiftToken}
+                    chartStepWidth={chartStepWidth}
+                  />
+                </div>
+                <div className="relative z-10 flex items-center gap-2 text-lg font-semibold">
                   <ArrowUp className="h-4 w-4 text-danger" />
                   <span>{formatSpeed(currentUploadBps)}</span>
                 </div>
-                <div className="mt-1 text-xs text-textMuted">
+                <div className="relative z-10 mt-1 text-xs text-textMuted">
                   Up <span className="mx-1">•</span> {formatData(totalUpload)}
                 </div>
               </div>
@@ -456,61 +535,6 @@ export function DashboardPage() {
               </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-panel px-3 py-3">
-              <div className="overflow-hidden rounded-lg">
-                <svg
-                  viewBox={`0 0 ${TRAFFIC_CHART_WIDTH} ${TRAFFIC_CHART_HEIGHT}`}
-                  className="h-12 w-full"
-                  preserveAspectRatio="none"
-                  aria-label="Upload and download speed chart"
-                  role="img"
-                >
-                  <line
-                    x1="0"
-                    y1={TRAFFIC_CHART_HEIGHT - 0.5}
-                    x2={TRAFFIC_CHART_WIDTH}
-                    y2={TRAFFIC_CHART_HEIGHT - 0.5}
-                    className="stroke-border"
-                    strokeWidth="1"
-                  />
-                  <motion.g
-                    key={chartShiftToken}
-                    initial={{ x: chartStepWidth }}
-                    animate={{ x: 0 }}
-                    transition={{ duration: TRAFFIC_SAMPLE_INTERVAL_MS / 1000, ease: "linear" }}
-                  >
-                    {downloadLine ? (
-                      <>
-                        <path d={downloadArea} fill={TRAFFIC_DOWNLOAD_FILL} />
-                        <path
-                          d={downloadLine}
-                          fill="none"
-                          stroke={TRAFFIC_DOWNLOAD_STROKE}
-                          strokeOpacity="0.85"
-                          strokeWidth="1.5"
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                        />
-                      </>
-                    ) : null}
-                    {uploadLine ? (
-                      <>
-                        <path d={uploadArea} fill={TRAFFIC_UPLOAD_FILL} />
-                        <path
-                          d={uploadLine}
-                          fill="none"
-                          stroke={TRAFFIC_UPLOAD_STROKE}
-                          strokeOpacity="0.8"
-                          strokeWidth="1.5"
-                          strokeLinejoin="round"
-                          strokeLinecap="round"
-                        />
-                      </>
-                    ) : null}
-                  </motion.g>
-                </svg>
-              </div>
-            </div>
           </Card>
         </motion.div>
       </div>
