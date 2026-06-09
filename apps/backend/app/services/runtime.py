@@ -8,9 +8,9 @@ import logging
 import os
 import socket
 import time
+import traceback
 import urllib.error
 import urllib.request
-import traceback
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -38,9 +38,9 @@ from app.services.singbox import (
     stop_all_warm_instances,
     stop_instance,
 )
+from app.services.system_proxy import enable_system_proxy, get_system_proxy_state, restore_system_proxy_state
 from app.services.transport import manager as transport_manager
 from app.services.transport.traffic import _traffic
-from app.services.system_proxy import enable_system_proxy, get_system_proxy_state, restore_system_proxy_state
 
 CoreRuntime = Literal["sing-box", "tcp-inject"]
 ConnectionState = Literal["stopped", "starting", "running", "error"]
@@ -351,8 +351,10 @@ class CoreRuntimeService:
             )
         listen_host = "0.0.0.0" if str(core_settings.get("proxyScope", "local")).lower() == "lan" else "127.0.0.1"
         readiness_host = "127.0.0.1" if listen_host == "0.0.0.0" else listen_host
-        http_port = await self._claim_runtime_port_locked(readiness_host, int(core_settings.get("proxyPort", 2080)), "HTTP proxy")
-        socks_port = await self._claim_runtime_port_locked(readiness_host, int(core_settings.get("socksPort", 2081)), "SOCKS proxy")
+        http_port = await self._claim_runtime_port_locked(readiness_host, int(core_settings.get("proxyPort", 2080)),
+                                                          "HTTP proxy")
+        socks_port = await self._claim_runtime_port_locked(readiness_host, int(core_settings.get("socksPort", 2081)),
+                                                           "SOCKS proxy")
         if socks_port == http_port:
             socks_port = await self._claim_runtime_port_locked(readiness_host, pick_free_port(), "SOCKS proxy")
         self._status.listen_host = listen_host
@@ -361,8 +363,25 @@ class CoreRuntimeService:
         self._status.tun_mode = mode == "tun"
         self._status.network_mode = mode
         runtime_profile = profile
+
+        # Extract timeout settings (use defaults if not present)
+        connect_timeout_ms = int(core_settings.get("connectTimeoutMs", 3000))
+        inject_timeout_ms = int(core_settings.get("injectTimeoutMs", 2000))
+        relay_idle_ms = int(core_settings.get("relayIdleTimeoutMs", 120000))
+        stale_ms = int(core_settings.get("staleConnectionMs", 30000))
+        cleanup_ms = int(core_settings.get("cleanupIntervalMs", 5000))
+
         if transport_mode == "tcp-inject":
-            await self._spawn_tcp_inject_locked(profile, core_settings, cloudflare_listener)
+            await self._spawn_tcp_inject_locked(
+                profile,
+                core_settings,
+                cloudflare_listener,
+                connect_timeout_ms,
+                inject_timeout_ms,
+                relay_idle_ms,
+                stale_ms,
+                cleanup_ms,
+            )
             runtime_profile = self._rewrite_profile_for_bridge(profile, cloudflare_listener)
             routing = dict(routing)
             routing["connectIpException"] = str((cloudflare_listener or {}).get("CONNECT_IP", "")).strip()
@@ -398,7 +417,10 @@ class CoreRuntimeService:
         if transport_mode == "tcp-inject":
             await self._emit_log_locked("info", f"runtime mode=tcp-inject profile={profile_id}")
 
-    async def _spawn_tcp_inject_locked(self, profile: Profile, core_settings: dict, listener: dict | None) -> None:
+    async def _spawn_tcp_inject_locked(self, profile: Profile, core_settings: dict, listener: dict | None,
+                                       connect_timeout_ms: int, inject_timeout_ms: int, relay_idle_ms: int,
+                                       stale_ms: int, cleanup_ms: int, ) -> None:
+        """Start the TCP injector (broad filter) and the local bridge."""
         if listener is None:
             raise RuntimeError("TCP Inject mode requires a selected listener")
         connect_ip = str((listener or {}).get("CONNECT_IP", "")).strip()
@@ -413,26 +435,31 @@ class CoreRuntimeService:
         interface_ipv4 = self._resolve_local_device_ip()
         if not interface_ipv4:
             raise RuntimeError("TCP Inject mode could not determine a usable local IPv4 address")
-        try:
-            transport_manager.start_injector(
-                interface_ipv4,
-                connect_ip,
-                connect_port,
-                fake_sni.encode(),
-                None,
-                None,
-                bridge_host,
-                False,
-            )
-            self._bridge_server = await asyncio.start_server(
-                transport_manager.handle_bridge_client,
-                bridge_host,
-                bridge_port,
-            )
-        except Exception:
-            await self._stop_bridge_locked()
-            transport_manager.stop_injector()
-            raise
+
+        # Start the injector using the new signature with timeouts
+        transport_manager.start_injector(
+            interface_ipv4,
+            connect_ip,  # kept for compatibility / logging only
+            connect_port,
+            fake_sni.encode(),
+            None,  # socks_port (None = don't start local proxies)
+            None,  # http_port
+            bridge_host,
+            False,  # start_local_proxies = False (we only need the bridge)
+            connect_timeout_ms,
+            inject_timeout_ms,
+            relay_idle_ms,
+            stale_ms,
+            cleanup_ms,
+        )
+
+        # Start the bridge server (listens for connections from sing‑box)
+        self._bridge_server = await asyncio.start_server(
+            transport_manager.handle_bridge_client,
+            bridge_host,
+            bridge_port,
+        )
+
         target_label = f"{connect_ip}:{connect_port}"
         await self._emit_log_locked(
             "debug",
@@ -443,7 +470,6 @@ class CoreRuntimeService:
             f"tcp-inject self-check hint: GET /api/core/self-check (target={target_label})",
         )
 
-        # Runtime readiness is managed by sing-box; injector runs in parallel.
         self._status.runtime = "tcp-inject"
 
     async def _ensure_readiness_locked(self) -> None:
@@ -732,7 +758,8 @@ class CoreRuntimeService:
     async def _emit_status_locked(self) -> None:
         await self._publish_event("status", self._status.as_dict())
 
-    async def _emit_log_locked(self, level: str, message: str, *, source: str = "runtime", trace: str | None = None) -> None:
+    async def _emit_log_locked(self, level: str, message: str, *, source: str = "runtime",
+                               trace: str | None = None) -> None:
         level_map = {
             "debug": logging.DEBUG,
             "info": logging.INFO,

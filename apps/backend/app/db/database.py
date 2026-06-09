@@ -42,6 +42,11 @@ _DEFAULT_APP_SETTINGS_DOC: dict[str, Any] = {
         "socksPort": 2081,
         "autoReconnect": True,
         "transportMode": "tcp-inject",  # "singbox" or "tcp-inject"
+        "connectTimeoutMs": 3000,
+        "injectTimeoutMs": 2000,
+        "relayIdleTimeoutMs": 120000,
+        "staleConnectionMs": 30000,
+        "cleanupIntervalMs": 5000,
     },
     "ui": {
         "theme": "system",

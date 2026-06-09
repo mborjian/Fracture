@@ -45,6 +45,11 @@ class CoreSettingsPayload(BaseModel):
     socksPort: int = Field(default=2081, ge=1, le=65535)
     autoReconnect: bool = True
     transportMode: str = Field(default="tcp-inject")
+    connectTimeoutMs: int = Field(default=3000, ge=500, le=60000)
+    injectTimeoutMs: int = Field(default=2000, ge=500, le=30000)
+    relayIdleTimeoutMs: int = Field(default=120000, ge=5000, le=600000)
+    staleConnectionMs: int = Field(default=30000, ge=5000, le=120000)
+    cleanupIntervalMs: int = Field(default=5000, ge=1000, le=30000)
 
 
 class UiSettingsPayload(BaseModel):

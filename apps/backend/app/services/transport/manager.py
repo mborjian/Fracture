@@ -1,31 +1,53 @@
+from __future__ import annotations
+
 import asyncio
-import concurrent.futures
 import contextlib
+import logging
 import os
 import socket
 import threading
+import time
 from typing import Optional
 
-from app.services.curl_socks import measure_download_via_socks5, probe_latency_via_socks5
-
+from .connection_registry import ConnectionRegistry
 from .http_proxy import HttpProxyServer
+from .monitor_connection import MonitorConnection
 from .packet_templates import ClientHelloMaker
+from .profile_store import ProfileStore
 from .socks5 import Socks5Server
-from .tcp_injector import TcpInjector, FakeInjectiveConnection
+from .tcp_injector import TcpInjector
+from .traffic import _traffic
 
-_injector_thread: Optional[threading.Thread] = None
+# Global state (simplified)
 _injector: Optional[TcpInjector] = None
-_proxy_thread: Optional[threading.Thread] = None
-_connections: dict = {}
-_running = False
+_injector_thread: Optional[threading.Thread] = None
+_registry: Optional[ConnectionRegistry] = None
+_profile_store: Optional[ProfileStore] = None
+_cleanup_task: Optional[asyncio.Task] = None
 _socks_server: Optional[Socks5Server] = None
-_http_server: Optional[HttpProxyServer] = None
+_http_server: Optional[Socks5Server] = None  # actually HttpProxyServer, but kept type for consistency
+_proxy_thread: Optional[threading.Thread] = None
 _socks_loop: Optional[asyncio.AbstractEventLoop] = None
+_listen_host: str = "127.0.0.1"
 _active_socks_port: Optional[int] = None
 _active_http_port: Optional[int] = None
-_target_connect_ip: Optional[str] = None
-_target_connect_port: Optional[int] = None
-_target_fake_sni: bytes = b""
+_running = False
+
+# Timeout settings (updated from core_settings)
+_connect_timeout_ms = 3000
+_inject_timeout_ms = 2000
+_relay_idle_timeout_ms = 120000
+_stale_connection_ms = 30000
+_cleanup_interval_ms = 5000
+
+_logger = logging.getLogger("tcp_injector.manager")
+
+
+def _update_timeouts_from_settings() -> None:
+    """Called from runtime.py to pass core settings."""
+    global _connect_timeout_ms, _inject_timeout_ms, _relay_idle_timeout_ms, _stale_connection_ms, _cleanup_interval_ms
+    # These will be set by runtime._spawn_tcp_inject_locked
+    pass
 
 
 def start_injector(
@@ -37,77 +59,82 @@ def start_injector(
         http_port: Optional[int],
         listen_host: str = "127.0.0.1",
         start_local_proxies: bool = True,
-):
-    """Launch the WinDivert injector and local SOCKS/HTTP proxies."""
-    global _injector_thread, _injector, _proxy_thread, _connections, _running, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _target_fake_sni
+        connect_timeout_ms: int = 3000,
+        inject_timeout_ms: int = 2000,
+        relay_idle_timeout_ms: int = 120000,
+        stale_connection_ms: int = 30000,
+        cleanup_interval_ms: int = 5000,
+) -> bool:
+    """
+    Start the broad‑filter TCP injector and optionally local SOCKS/HTTP proxies.
+    Unlike the old version, this does NOT use the narrow filter; it creates a single injector
+    that will handle any destination IP. The actual target for each connection is determined
+    by ProfileStore at connection time.
+    """
+    global _injector, _injector_thread, _registry, _profile_store, _cleanup_task
+    global _socks_server, _http_server, _proxy_thread, _socks_loop, _running
+    global _listen_host, _active_socks_port, _active_http_port
+    global _connect_timeout_ms, _inject_timeout_ms, _relay_idle_timeout_ms, _stale_connection_ms, _cleanup_interval_ms
 
     if _running:
         stop_injector()
 
-    _connections.clear()
-    connect_port = int(connect_port)
-    if not str(connect_ip).strip():
-        raise ValueError("connect_ip is required")
-    if not fake_sni:
-        raise ValueError("fake_sni is required")
-
-    w_filter = (
-        f"tcp and ((ip.SrcAddr == {interface_ipv4} and ip.DstAddr == {connect_ip} and tcp.DstPort == {connect_port}) or "
-        f"(ip.SrcAddr == {connect_ip} and ip.DstAddr == {interface_ipv4} and tcp.SrcPort == {connect_port}))"
-    )
-
-    injector = TcpInjector(
-        w_filter,
-        _connections,
-        fake_sni=fake_sni,
-        auto_monitor=not start_local_proxies,
-        match_port=connect_port,
-    )
-    _injector = injector
+    # Store timeouts
+    _connect_timeout_ms = connect_timeout_ms
+    _inject_timeout_ms = inject_timeout_ms
+    _relay_idle_timeout_ms = relay_idle_timeout_ms
+    _stale_connection_ms = stale_connection_ms
+    _cleanup_interval_ms = cleanup_interval_ms
+    _listen_host = listen_host
     _running = True
-    _active_socks_port = socks_port
-    _active_http_port = http_port
-    _target_connect_ip = connect_ip
-    _target_connect_port = connect_port
-    _target_fake_sni = fake_sni
 
-    # Start WinDivert capture thread
-    def _run():
-        with contextlib.suppress(Exception):
-            injector.run()
+    # Create registry and profile store
+    _registry = ConnectionRegistry()
+    _profile_store = ProfileStore()  # will read from database
 
-    _injector_thread = threading.Thread(target=_run, daemon=True)
+    # Start injector thread
+    _injector = TcpInjector(_registry, _logger)
+    _injector_thread = threading.Thread(target=_injector.run, name="windivert-injector", daemon=True)
     _injector_thread.start()
 
+    # Start background cleanup task (async)
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+    _cleanup_task = loop.create_task(_cleanup_loop())
+
     if not start_local_proxies:
-        _proxy_thread = None
-        _socks_server = None
-        _http_server = None
-        _socks_loop = None
+        _active_socks_port = None
+        _active_http_port = None
         return True
 
     if socks_port is None or http_port is None:
         raise ValueError("socks_port and http_port are required when start_local_proxies=True")
 
-    # Start local proxies in their own asyncio loop.
+    _active_socks_port = socks_port
+    _active_http_port = http_port
+
+    # Start local proxies in their own asyncio loop
     _socks_loop = asyncio.new_event_loop()
     _socks_server = Socks5Server(listen_host, socks_port, interface_ipv4, fake_sni)
     _http_server = HttpProxyServer(listen_host, http_port, interface_ipv4, fake_sni)
 
     def _run_proxy():
         loop = _socks_loop
-        socks_server = _socks_server
-        http_server = _http_server
-        if loop is None or socks_server is None or http_server is None:
+        socks = _socks_server
+        http = _http_server
+        if loop is None or socks is None or http is None:
             return
         asyncio.set_event_loop(loop)
         try:
-            loop.run_until_complete(asyncio.gather(socks_server.start(), http_server.start()))
+            loop.run_until_complete(asyncio.gather(socks.start(), http.start()))
             loop.run_forever()
         finally:
             pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
+            for t in pending:
+                t.cancel()
             if pending:
                 loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
             loop.close()
@@ -117,13 +144,20 @@ def start_injector(
     return True
 
 
-def stop_injector():
-    """Stop WinDivert injector and SOCKS5 proxy."""
-    global _running, _injector_thread, _injector, _proxy_thread, _socks_server, _http_server, _socks_loop, _active_socks_port, _active_http_port, _target_connect_ip, _target_connect_port, _target_fake_sni
+def stop_injector() -> None:
+    global _injector, _injector_thread, _registry, _profile_store, _cleanup_task
+    global _socks_server, _http_server, _proxy_thread, _socks_loop, _running
+    global _active_socks_port, _active_http_port
+
     _running = False
 
     if _injector is not None:
         _injector.stop()
+        _injector = None
+
+    if _cleanup_task is not None:
+        _cleanup_task.cancel()
+        _cleanup_task = None
 
     if _socks_loop and not _socks_loop.is_closed():
         async def _stop():
@@ -138,7 +172,7 @@ def stop_injector():
         try:
             future = asyncio.run_coroutine_threadsafe(_stop(), _socks_loop)
             future.result(timeout=2)
-        except (RuntimeError, concurrent.futures.TimeoutError):
+        except (RuntimeError, asyncio.TimeoutError):
             pass
         finally:
             with contextlib.suppress(RuntimeError):
@@ -146,56 +180,62 @@ def stop_injector():
 
     if _proxy_thread and _proxy_thread.is_alive():
         _proxy_thread.join(timeout=2)
-
     if _injector_thread and _injector_thread.is_alive():
         _injector_thread.join(timeout=2)
 
     _injector_thread = None
-    _injector = None
     _proxy_thread = None
     _socks_server = None
     _http_server = None
     _socks_loop = None
-    _connections.clear()
+    _registry = None
+    _profile_store = None
     _active_socks_port = None
     _active_http_port = None
-    _target_connect_ip = None
-    _target_connect_port = None
-    _target_fake_sni = b""
+
+
+async def _cleanup_loop() -> None:
+    while _running:
+        await asyncio.sleep(_cleanup_interval_ms / 1000.0)
+        if _registry is not None:
+            removed = _registry.prune(_stale_connection_ms / 1000.0)
+            if removed:
+                _logger.info("registry_pruned", extra={"event_name": "registry.pruned", "fields": {"removed": removed}})
 
 
 def get_active_socks_port() -> Optional[int]:
-    """Return the SOCKS port currently used by the injector, if any."""
     return _active_socks_port
 
 
 def get_active_http_port() -> Optional[int]:
-    """Return the HTTP port currently used by the injector, if any."""
     return _active_http_port
 
 
 def get_injector_target() -> tuple[Optional[str], Optional[int]]:
-    """Return injector target tuple used for tcp-inject mode."""
-    return _target_connect_ip, _target_connect_port
+    """Deprecated for multi‑profile; kept for compatibility."""
+    return None, None
 
 
 def get_injector_diagnostics() -> dict:
-    """Return lightweight runtime diagnostics for tcp-inject troubleshooting."""
-    connect_ip, connect_port = get_injector_target()
-    injector_alive = bool(_injector_thread and _injector_thread.is_alive())
-    proxy_alive = bool(_proxy_thread and _proxy_thread.is_alive())
+    global _injector, _injector_thread, _proxy_thread, _running, _registry
+    injector_alive = _injector_thread and _injector_thread.is_alive()
+    proxy_alive = _proxy_thread and _proxy_thread.is_alive()
+    registry_stats = _registry.get_stats() if _registry else {}
+    injector_stats = _injector.get_stats() if _injector else {}
     return {
-        "running": bool(_running),
+        "running": _running,
         "injectorThreadAlive": injector_alive,
         "proxyThreadAlive": proxy_alive,
         "proxyMode": "local-proxy" if _socks_server is not None or _http_server is not None else "hook-only",
         "activeSocksPort": _active_socks_port,
         "activeHttpPort": _active_http_port,
-        "targetConnectIp": connect_ip,
-        "targetConnectPort": connect_port,
-        "fakeSniConfigured": bool(_target_fake_sni),
-        "activeMonitoredConnections": len(_connections),
-        "injectorStats": _injector.get_stats() if _injector is not None else {},
+        "activeMonitoredConnections": registry_stats.get("active_connections", 0),
+        "injectorStats": injector_stats,
+        "connectTimeoutMs": _connect_timeout_ms,
+        "injectTimeoutMs": _inject_timeout_ms,
+        "relayIdleTimeoutMs": _relay_idle_timeout_ms,
+        "staleConnectionMs": _stale_connection_ms,
+        "cleanupIntervalMs": _cleanup_interval_ms,
     }
 
 
@@ -207,9 +247,6 @@ async def handle_bridge_client(reader: asyncio.StreamReader, writer: asyncio.Str
     success, message, outgoing_sock = await establish_connection(
         loop,
         interface_ipv4,
-        _target_connect_ip,
-        _target_connect_port,
-        _target_fake_sni,
         peer_sock,
     )
     if not success or outgoing_sock is None:
@@ -220,18 +257,22 @@ async def handle_bridge_client(reader: asyncio.StreamReader, writer: asyncio.Str
 
     remote_reader, remote_writer = await asyncio.open_connection(sock=outgoing_sock)
     await asyncio.gather(
-        _relay_with_count(reader, remote_writer, is_upload=True),
-        _relay_with_count(remote_reader, writer, is_upload=False),
+        _relay_with_count(reader, remote_writer, is_upload=True, idle_timeout=_relay_idle_timeout_ms),
+        _relay_with_count(remote_reader, writer, is_upload=False, idle_timeout=_relay_idle_timeout_ms),
         return_exceptions=True,
     )
 
 
-async def _relay_with_count(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, is_upload: bool) -> None:
-    from .traffic import _traffic
-
+async def _relay_with_count(
+        reader: asyncio.StreamReader,
+        writer: asyncio.StreamWriter,
+        is_upload: bool,
+        idle_timeout: int,
+) -> None:
+    timeout_s = idle_timeout / 1000.0
     try:
         while True:
-            data = await reader.read(65535)
+            data = await asyncio.wait_for(reader.read(65535), timeout=timeout_s)
             if not data:
                 break
             writer.write(data)
@@ -263,125 +304,75 @@ def _resolve_local_device_ip() -> str | None:
     return candidates[0] if candidates else None
 
 
-def test_delay_via_socks5(timeout_s: float = 3.0) -> float:
-    """
-    Measure real HTTP latency through the active SOCKS5 proxy.
-    """
-    port = get_active_socks_port()
-    if not port:
-        raise RuntimeError("No active SOCKS5 proxy")
-    try:
-        return float(probe_latency_via_socks5("127.0.0.1", port, timeout_s=timeout_s))
-    except Exception as e:
-        raise TimeoutError(f"SOCKS5 delay test failed: {e}")
-
-
-def test_speed_via_socks5(timeout_s: float = 5.0) -> float:
-    """
-    Download a real payload via SOCKS5 proxy and return throughput (bytes/sec).
-    """
-    port = get_active_socks_port()
-    if not port:
-        raise RuntimeError("No active SOCKS5 proxy")
-    try:
-        return float(measure_download_via_socks5("127.0.0.1", port, timeout_s=timeout_s))
-    except Exception as e:
-        raise TimeoutError(f"SOCKS5 speed test failed: {e}")
-
-
-def _socks5_connect(proxy_host: str, proxy_port: int, target_host: str, target_port: int,
-                    timeout_s: float) -> socket.socket:
-    sock = socket.create_connection((proxy_host, proxy_port), timeout=timeout_s)
-    sock.settimeout(timeout_s)
-    try:
-        sock.sendall(b"\x05\x01\x00")
-        response = sock.recv(2)
-        if response != b"\x05\x00":
-            raise RuntimeError("SOCKS5 handshake failed")
-
-        host_bytes = target_host.encode("idna")
-        request = b"\x05\x01\x00\x03" + bytes([len(host_bytes)]) + host_bytes + target_port.to_bytes(2, "big")
-        sock.sendall(request)
-        head = sock.recv(4)
-        if len(head) != 4 or head[1] != 0:
-            raise RuntimeError("SOCKS5 connect failed")
-
-        atyp = head[3]
-        if atyp == 0x01:
-            remaining = 4 + 2
-        elif atyp == 0x03:
-            length = sock.recv(1)
-            if not length:
-                raise RuntimeError("SOCKS5 malformed response")
-            remaining = int(length[0]) + 2
-        elif atyp == 0x04:
-            remaining = 16 + 2
-        else:
-            raise RuntimeError("SOCKS5 unknown address type")
-        while remaining > 0:
-            chunk = sock.recv(remaining)
-            if not chunk:
-                raise RuntimeError("SOCKS5 truncated response")
-            remaining -= len(chunk)
-        return sock
-    except Exception:
-        sock.close()
-        raise
-
-
 async def establish_connection(
         loop: asyncio.AbstractEventLoop,
         interface_ipv4: str,
-        connect_ip: Optional[str],
-        connect_port: Optional[int],
-        fake_sni: bytes,
-        peer_sock: socket.socket
+        peer_sock: socket.socket,
 ) -> tuple[bool, str, Optional[socket.socket]]:
     """
-    Perform the TCP handshake and fake TLS injection.
-    Returns (success, message, outgoing_socket) or (False, error, None).
+    Perform TCP handshake and fake TLS injection using current active profile.
+    Returns (success, message, outgoing_socket).
     """
-    target_ip = connect_ip
-    target_port = connect_port
-    if not target_ip or not target_port:
-        target_ip, target_port = get_injector_target()
-    if not target_ip or not target_port:
-        return False, "injector target is not configured", None
+    global _profile_store, _registry, _connect_timeout_ms, _inject_timeout_ms
 
+    if _profile_store is None or _registry is None:
+        return False, "injector not started", None
+
+    try:
+        connect_ip, connect_port, fake_sni_bytes = await _profile_store.get_active_profile()
+    except RuntimeError as e:
+        return False, str(e), None
+
+    # Build fake TLS ClientHello
+    fake_data = ClientHelloMaker.get_client_hello_with(
+        os.urandom(32), os.urandom(32), fake_sni_bytes, os.urandom(32)
+    )
+
+    # Create outgoing socket
     outgoing = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     outgoing.setblocking(False)
     outgoing.bind((interface_ipv4, 0))
     src_port = outgoing.getsockname()[1]
 
-    fake_data = ClientHelloMaker.get_client_hello_with(
-        os.urandom(32), os.urandom(32), fake_sni, os.urandom(32)
+    # Create monitor connection
+    import uuid
+    conn = MonitorConnection(
+        connection_id=uuid.uuid4().hex,
+        profile_id="active",  # not used for much
+        sock=outgoing,
+        peer_sock=peer_sock,
+        src_ip=interface_ipv4,
+        dst_ip=connect_ip,
+        src_port=src_port,
+        dst_port=connect_port,
+        fake_data=fake_data,
+        bypass_method="wrong_seq",
     )
-    conn = FakeInjectiveConnection(
-        outgoing, interface_ipv4, target_ip, src_port, int(target_port),
-        fake_data, "wrong_seq", peer_sock
-    )
-    _connections[conn.id] = conn
+    _registry.add(conn)
 
     try:
-        await loop.sock_connect(outgoing, (target_ip, int(target_port)))
+        # Connect with timeout
+        await asyncio.wait_for(
+            loop.sock_connect(outgoing, (connect_ip, connect_port)),
+            timeout=_connect_timeout_ms / 1000.0,
+        )
+        # Wait for fake ACK with inject timeout
+        await asyncio.wait_for(
+            conn.t2a_event.wait(),
+            timeout=_inject_timeout_ms / 1000.0,
+        )
+        if conn.t2a_msg != "fake_data_ack_recv":
+            return False, f"unexpected injector state: {conn.t2a_msg}", None
+    except asyncio.TimeoutError:
+        _registry.remove(conn.id)
+        outgoing.close()
+        return False, f"timeout ({_connect_timeout_ms if conn.syn_seq == -1 else _inject_timeout_ms} ms)", None
     except Exception as e:
-        _connections.pop(conn.id, None)
+        _registry.remove(conn.id)
         outgoing.close()
-        return False, f"connect failed: {e}", None
+        return False, f"connection error: {e}", None
 
-    # Wait for the fake packet to be acknowledged (2 sec timeout)
-    event_set = await loop.run_in_executor(None, conn.t2a_event.wait, 2.0)
-    if not event_set:
-        _connections.pop(conn.id, None)
-        outgoing.close()
-        return False, "timeout waiting for fake ACK", None
-
-    if conn.t2a_msg != "fake_data_ack_recv":
-        _connections.pop(conn.id, None)
-        outgoing.close()
-        return False, f"unexpected state: {conn.t2a_msg}", None
-
-    # Injection successful – stop monitoring this connection
+    # Injection succeeded – stop monitoring
     conn.monitor = False
-    _connections.pop(conn.id, None)
+    _registry.remove(conn.id)
     return True, "injection ready", outgoing
