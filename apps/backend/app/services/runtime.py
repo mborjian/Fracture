@@ -432,7 +432,7 @@ class CoreRuntimeService:
         if not fake_sni:
             raise RuntimeError("TCP Inject mode requires FAKE_SNI in listener")
 
-        interface_ipv4 = self._resolve_local_device_ip()
+        interface_ipv4 = self._resolve_local_device_ip(exclude_prefixes=("127.", "172.19."))
         if not interface_ipv4:
             raise RuntimeError("TCP Inject mode could not determine a usable local IPv4 address")
 
@@ -874,14 +874,14 @@ class CoreRuntimeService:
         return ";".join(domains)
 
     @staticmethod
-    def _resolve_local_device_ip() -> str | None:
+    def _resolve_local_device_ip(exclude_prefixes: tuple[str, ...] = ("127.",)) -> str | None:
         candidates: list[str] = []
 
         try:
             hostname = socket.gethostname()
             for _, _, _, _, sockaddr in socket.getaddrinfo(hostname, None, socket.AF_INET):
                 ip = str(sockaddr[0])
-                if ip and not ip.startswith("127."):
+                if ip and not any(ip.startswith(prefix) for prefix in exclude_prefixes):
                     candidates.append(ip)
         except Exception:
             pass
@@ -890,7 +890,7 @@ class CoreRuntimeService:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.connect(("8.8.8.8", 80))
                 ip = str(sock.getsockname()[0])
-                if ip and not ip.startswith("127."):
+                if ip and not any(ip.startswith(prefix) for prefix in exclude_prefixes):
                     candidates.append(ip)
         except Exception:
             pass

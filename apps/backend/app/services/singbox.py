@@ -864,8 +864,8 @@ def build_config(
                 "interface_name": tun_name,
                 "address": ["172.19.0.1/30"],
                 "auto_route": True,
-                "strict_route": False,
-                "stack": "system",
+                "strict_route": True,
+                "stack": "gvisor",
             }
         )
         inbounds.append(

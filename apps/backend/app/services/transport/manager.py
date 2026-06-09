@@ -287,19 +287,19 @@ async def _relay_with_count(
             await writer.wait_closed()
 
 
-def _resolve_local_device_ip() -> str | None:
+def _resolve_local_device_ip(exclude_prefixes: tuple[str, ...] = ("127.", "172.19.")) -> str | None:
     candidates: list[str] = []
     with contextlib.suppress(Exception):
         hostname = socket.gethostname()
         for _, _, _, _, sockaddr in socket.getaddrinfo(hostname, None, socket.AF_INET):
             ip = str(sockaddr[0])
-            if ip and not ip.startswith("127."):
+            if ip and not any(ip.startswith(prefix) for prefix in exclude_prefixes):
                 candidates.append(ip)
     with contextlib.suppress(Exception):
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
             sock.connect(("8.8.8.8", 80))
             ip = str(sock.getsockname()[0])
-            if ip and not ip.startswith("127."):
+            if ip and not any(ip.startswith(prefix) for prefix in exclude_prefixes):
                 candidates.append(ip)
     return candidates[0] if candidates else None
 
@@ -322,6 +322,11 @@ async def establish_connection(
         connect_ip, connect_port, fake_sni_bytes = await _profile_store.get_active_profile()
     except RuntimeError as e:
         return False, str(e), None
+
+    if not interface_ipv4 or interface_ipv4.startswith("172.19."):
+        interface_ipv4 = _resolve_local_device_ip() or interface_ipv4
+    if not interface_ipv4 or interface_ipv4.startswith("172.19."):
+        return False, "could not determine a non-TUN local IPv4 address for injector egress", None
 
     # Build fake TLS ClientHello
     fake_data = ClientHelloMaker.get_client_hello_with(
