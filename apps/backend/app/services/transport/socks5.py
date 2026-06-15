@@ -98,7 +98,7 @@ class Socks5Server:
                     _traffic.add_upload(len(data))
                 else:
                     _traffic.add_download(len(data))
-        except:
+        except Exception:
             pass
         finally:
             writer.close()

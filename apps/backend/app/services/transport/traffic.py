@@ -53,7 +53,7 @@ async def fetch_egress_via_socks5(socks_port: int) -> Tuple[Optional[str], Optio
             async with session.get("https://api.ipify.org?format=json", timeout=5) as resp:
                 data = await resp.json()
                 ip = data.get("ip")
-        except:
+        except Exception:
             pass
         try:
             async with session.get("https://ipapi.co/json", timeout=5) as resp:
@@ -61,6 +61,6 @@ async def fetch_egress_via_socks5(socks_port: int) -> Tuple[Optional[str], Optio
                 country = data.get("country") or data.get("country_code") or data.get("country_name")
                 if not ip:
                     ip = data.get("ip")
-        except:
+        except Exception:
             pass
     return ip, country

@@ -517,7 +517,6 @@ class CoreRuntimeService:
             await server.wait_closed()
 
     async def _apply_system_proxy_locked(self) -> None:
-        core_settings = await fetch_core_settings()
         routing = await fetch_routing_config()
         if bool(routing.get("tunMode", False)):
             await self._restore_system_proxy_locked()

@@ -6,7 +6,6 @@ import logging
 import os
 import socket
 import threading
-import time
 from typing import Optional
 
 from .connection_registry import ConnectionRegistry

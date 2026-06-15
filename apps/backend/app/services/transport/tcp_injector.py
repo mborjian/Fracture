@@ -2,10 +2,8 @@ from __future__ import annotations
 
 import contextlib
 import logging
-import sys
 import time
 from pydivert import WinDivert, Packet
-from typing import Callable, Optional
 
 from .connection_registry import ConnectionRegistry
 from .monitor_connection import MonitorConnection

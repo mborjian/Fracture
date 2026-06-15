@@ -4,7 +4,6 @@ import asyncio
 import socket
 import threading
 import time
-from typing import Optional
 
 
 class MonitorConnection:
