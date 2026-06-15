@@ -13,6 +13,7 @@ permissions:
   contents: write
 
 env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   NODE_VERSION: 24.x
   PYTHON_VERSION: '3.12'
   CARGO_TERM_COLOR: always
@@ -44,10 +45,11 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
 
-      - name: Update npm to latest version
+      - name: Configure npm registry and update
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
+          npm config set registry https://registry.npmjs.org/
           npm install -g npm@latest
 
       - name: Set up Python
