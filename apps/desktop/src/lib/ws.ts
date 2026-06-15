@@ -8,13 +8,42 @@ const WS_URL = "ws://127.0.0.1:8765/ws/events";
 export function connectRealtime(queryClient: QueryClient) {
   let reconnectTimer: number | null = null;
   let ws: WebSocket | null = null;
+  let disposed = false;
+  let announcedReady = false;
+
+  const scheduleReconnect = () => {
+    if (disposed || reconnectTimer !== null) {
+      return;
+    }
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = null;
+      open();
+    }, 2000);
+  };
 
   const open = () => {
-    ws = new WebSocket(WS_URL);
-    ws.onopen = () => {
-      toast.success("Realtime channel connected");
+    if (disposed) {
+      return;
+    }
+
+    const socket = new WebSocket(WS_URL);
+    ws = socket;
+
+    socket.onopen = () => {
+      if (disposed || ws !== socket) {
+        socket.close();
+        return;
+      }
+      if (!announcedReady) {
+        toast.success("Realtime channel connected");
+        announcedReady = true;
+      }
     };
-    ws.onmessage = (event) => {
+
+    socket.onmessage = (event) => {
+      if (disposed || ws !== socket) {
+        return;
+      }
       const data = JSON.parse(event.data) as WsEvent;
       if (data.type === "status") {
         useAppStore.getState().setStatus(data.payload as CoreStatus);
@@ -85,20 +114,35 @@ export function connectRealtime(queryClient: QueryClient) {
         });
       }
     };
-    ws.onclose = () => {
-      reconnectTimer = window.setTimeout(open, 2000);
+
+    socket.onclose = () => {
+      if (ws === socket) {
+        ws = null;
+      }
+      scheduleReconnect();
     };
-    ws.onerror = () => {
-      ws?.close();
+
+    socket.onerror = () => {
+      if (ws === socket) {
+        socket.close();
+      }
     };
   };
 
   open();
 
   return () => {
+    disposed = true;
     if (reconnectTimer !== null) {
       window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     }
-    ws?.close();
+    if (ws) {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.onmessage = null;
+      ws.close();
+      ws = null;
+    }
   };
 }

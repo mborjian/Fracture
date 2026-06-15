@@ -463,7 +463,7 @@ export function DashboardPage() {
                 <div className="mt-auto space-y-1 pt-2 text-xs">
                   {status?.lastError ? <div className="text-danger">{status.lastError}</div> : null}
                   {isConnected && !isTunMode ? (
-                    <div className="text-warning">
+                    <div className="text-textMuted">
                       Full system tunnel is off. Only proxy-aware apps will use this connection.
                     </div>
                   ) : null}

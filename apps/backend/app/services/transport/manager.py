@@ -43,6 +43,27 @@ _cleanup_interval_ms = 5000
 _logger = logging.getLogger("tcp_injector.manager")
 
 
+def _configure_tcp_keepalive(sock: socket.socket, *, idle_seconds: int = 30, interval_seconds: int = 10) -> None:
+    with contextlib.suppress(OSError):
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_KEEPALIVE, 1)
+
+    if os.name == "nt" and hasattr(socket, "SIO_KEEPALIVE_VALS"):
+        with contextlib.suppress(OSError):
+            sock.ioctl(socket.SIO_KEEPALIVE_VALS, (1, idle_seconds * 1000, interval_seconds * 1000))
+        return
+
+    for option_name, value in (
+        ("TCP_KEEPIDLE", idle_seconds),
+        ("TCP_KEEPINTVL", interval_seconds),
+        ("TCP_KEEPCNT", 5),
+    ):
+        option = getattr(socket, option_name, None)
+        if option is None:
+            continue
+        with contextlib.suppress(OSError):
+            sock.setsockopt(socket.IPPROTO_TCP, option, value)
+
+
 def _update_timeouts_from_settings() -> None:
     """Called from runtime.py to pass core settings."""
     global _connect_timeout_ms, _inject_timeout_ms, _relay_idle_timeout_ms, _stale_connection_ms, _cleanup_interval_ms
@@ -244,6 +265,8 @@ async def handle_bridge_client(reader: asyncio.StreamReader, writer: asyncio.Str
     loop = asyncio.get_running_loop()
     interface_ipv4 = _resolve_local_device_ip() or "0.0.0.0"
     peer_sock = writer.get_extra_info("socket")
+    if isinstance(peer_sock, socket.socket):
+        _configure_tcp_keepalive(peer_sock)
     success, message, outgoing_sock = await establish_connection(
         loop,
         interface_ipv4,
@@ -272,7 +295,10 @@ async def _relay_with_count(
     timeout_s = idle_timeout / 1000.0
     try:
         while True:
-            data = await asyncio.wait_for(reader.read(65535), timeout=timeout_s)
+            try:
+                data = await asyncio.wait_for(reader.read(65535), timeout=timeout_s) if timeout_s > 0 else await reader.read(65535)
+            except asyncio.TimeoutError:
+                continue
             if not data:
                 break
             writer.write(data)
@@ -336,6 +362,7 @@ async def establish_connection(
     # Create outgoing socket
     outgoing = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     outgoing.setblocking(False)
+    _configure_tcp_keepalive(outgoing)
     outgoing.bind((interface_ipv4, 0))
     src_port = outgoing.getsockname()[1]
 

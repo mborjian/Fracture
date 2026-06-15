@@ -42,24 +42,26 @@ class Socks5Server:
             if addr_type == 0x01:  # IPv4
                 addr_data = await reader.read(4)
                 port_data = await reader.read(2)
-                remote_host = socket.inet_ntoa(addr_data)
-                remote_port = struct.unpack(">H", port_data)[0]
+                socket.inet_ntoa(addr_data)
+                struct.unpack(">H", port_data)[0]
             elif addr_type == 0x03:  # Domain name
                 domain_len = (await reader.read(1))[0]
                 domain = await reader.read(domain_len)
-                remote_host = domain.decode()
+                domain.decode()
                 port_data = await reader.read(2)
-                remote_port = struct.unpack(">H", port_data)[0]
+                struct.unpack(">H", port_data)[0]
             else:
                 return
 
             # Lazy import avoids a startup-time circular import with manager.py.
             from .manager import establish_connection
 
-            # Establish connection to the fixed tcp-inject upstream target.
             loop = asyncio.get_running_loop()
+            client_sock = writer.get_extra_info("socket")
             success, _msg, outgoing_sock = await establish_connection(
-                loop, self.interface_ipv4, None, None, self.fake_sni, None
+                loop,
+                self.interface_ipv4,
+                client_sock if isinstance(client_sock, socket.socket) else None,
             )
             if not success or outgoing_sock is None:
                 writer.write(b"\x05\x01\x00\x01\x00\x00\x00\x00\x00\x00")

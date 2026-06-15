@@ -33,9 +33,12 @@ class HttpProxyServer:
                 return
 
             method, target, version = parts[0].upper(), parts[1], parts[2]
+            client_sock = writer.get_extra_info("socket")
+            if not isinstance(client_sock, socket.socket):
+                client_sock = None
             if method == "CONNECT":
                 host, port = self._split_host_port(target, 443)
-                remote_reader, remote_writer = await self._connect(host, port)
+                remote_reader, remote_writer = await self._connect(host, port, client_sock)
                 writer.write(f"{version} 200 Connection Established\r\n\r\n".encode("ascii"))
                 await writer.drain()
             else:
@@ -43,7 +46,7 @@ class HttpProxyServer:
                 if not parsed.hostname:
                     return
                 port = parsed.port or (443 if parsed.scheme == "https" else 80)
-                remote_reader, remote_writer = await self._connect(parsed.hostname, port)
+                remote_reader, remote_writer = await self._connect(parsed.hostname, port, client_sock)
                 path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
                 lines = head_text.split("\r\n")
                 lines[0] = f"{method} {path} {version}"
@@ -61,12 +64,14 @@ class HttpProxyServer:
             writer.close()
             await writer.wait_closed()
 
-    async def _connect(self, host: str, port: int) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    async def _connect(self, _host: str, _port: int, client_sock: socket.socket | None) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         from .manager import establish_connection
 
         loop = asyncio.get_running_loop()
         success, message, outgoing_sock = await establish_connection(
-            loop, self.interface_ipv4, None, None, self.fake_sni, None
+            loop,
+            self.interface_ipv4,
+            client_sock,
         )
         if not success or outgoing_sock is None:
             raise RuntimeError(message)
