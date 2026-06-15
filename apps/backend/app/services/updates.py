@@ -14,7 +14,7 @@ from app.core.config import settings
 
 SINGBOX_REPO = "SagerNet/sing-box"
 GITHUB_ACCEPT = "application/vnd.github+json"
-USER_AGENT = "FractureBackend/0.1.0"
+USER_AGENT = "FractureBackend/1.0.0"
 
 
 @dataclass

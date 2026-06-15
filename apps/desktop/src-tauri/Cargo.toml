@@ -1,6 +1,6 @@
 [package]
 name = "fracture-desktop"
-version = "0.1.0"
+version = "1.0.0"
 description = "Fracture desktop shell"
 authors = ["Fracture"]
 edition = "2021"

@@ -190,13 +190,20 @@ jobs:
           $tag = $env:GITHUB_REF_NAME
           $title = "Fracture $tag"
           $artifacts = Get-Content -Path .github-release-artifacts.txt | Where-Object { $_ }
-          $notesResponse = gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" `
-            -X POST `
-            -f tag_name=$tag `
-            | ConvertFrom-Json
-
           $notesPath = Join-Path $PWD '.github-release-notes.md'
-          $notesResponse.body | Set-Content -Path $notesPath -Encoding utf8
+          $version = $tag.TrimStart('v')
+          $curatedNotesPath = Join-Path $PWD ".github/releases/$version.md"
+
+          if (Test-Path -LiteralPath $curatedNotesPath) {
+            Copy-Item -LiteralPath $curatedNotesPath -Destination $notesPath -Force
+          }
+          else {
+            $notesResponse = gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" `
+              -X POST `
+              -f tag_name=$tag `
+              | ConvertFrom-Json
+            $notesResponse.body | Set-Content -Path $notesPath -Encoding utf8
+          }
 
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {

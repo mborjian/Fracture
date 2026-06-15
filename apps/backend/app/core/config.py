@@ -7,7 +7,7 @@ from pathlib import Path
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "Fracture Backend"
-    version: str = "0.1.0"
+    version: str = "1.0.0"
     host: str = "127.0.0.1"
     port: int = 8765
 
