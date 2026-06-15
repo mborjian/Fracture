@@ -95,7 +95,7 @@ jobs:
 
           "backend_lint=$($rootScriptNames -contains 'backend:lint')" >> $env:GITHUB_OUTPUT
           "desktop_test_script=$($desktopScriptNames -contains 'test')" >> $env:GITHUB_OUTPUT
-          "python_tests=$($pythonTests.Count -gt 0)" >> $env:GITHUB_OUTPUT
+          "python_tests=$(($pythonTests | Measure-Object).Count -gt 0)" >> $env:GITHUB_OUTPUT
 
       - name: Install frontend dependencies
         run: |
