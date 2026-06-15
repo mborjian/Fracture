@@ -4,8 +4,12 @@ import type {
   CoreStatus,
   Profile,
   ProfileImportResult,
+  ReleaseInfo,
   RoutingConfig,
+  UpdateActionResult,
   UiSettings
+  ,
+  VersionInfo
 } from "@/types";
 
 const BASE_URL = "http://127.0.0.1:8765";
@@ -100,6 +104,12 @@ export const api = {
   refreshEgress: () =>
     request<CoreStatus>("/api/core/egress/refresh", {
       method: "POST"
+    }),
+  versionInfo: () => request<VersionInfo>("/api/core/version-info"),
+  updateSingbox: () =>
+    request<UpdateActionResult>("/api/core/singbox/update", {
+      method: "POST",
+      timeoutMs: 120000
     }),
 
   profiles: () => request<Profile[]>("/api/profiles"),
@@ -211,5 +221,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload)
     }),
-  tunnelSupport: () => request<{ supported: boolean; reason: string }>("/api/settings/tunnel-support")
+  tunnelSupport: () => request<{ supported: boolean; reason: string }>("/api/settings/tunnel-support"),
+  appReleaseInfo: () => invokeBridge<ReleaseInfo>("get_app_release_info"),
+  openAppUpdatePage: () => invokeBridge<void>("open_app_update_page"),
+  relaunchAsAdmin: () => invokeBridge<void>("relaunch_as_admin")
 };
+
+async function invokeBridge<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(command, args);
+}

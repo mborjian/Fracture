@@ -24,6 +24,8 @@ const TRAFFIC_CHART_WIDTH = 720;
 const TRAFFIC_CHART_HEIGHT = 46;
 const TRAFFIC_CHART_PADDING = 10;
 const TRAFFIC_SAMPLE_INTERVAL_MS = 500;
+const TRAFFIC_CHART_MIN_SCALE = 64 * 1024;
+const TRAFFIC_CHART_HEADROOM = 1.15;
 const TRAFFIC_DOWNLOAD_STROKE = "var(--color-success)";
 const TRAFFIC_UPLOAD_STROKE = "var(--color-danger)";
 const TRAFFIC_DOWNLOAD_FILL = "color-mix(in srgb, var(--color-success) 16%, transparent)";
@@ -200,6 +202,7 @@ export function DashboardPage() {
   const setPendingAction = useAppStore((s) => s.setPendingConnectionAction);
   const [trafficHistory, setTrafficHistory] = useState<TrafficSample[]>(createEmptyTrafficHistory);
   const [chartShiftToken, setChartShiftToken] = useState(0);
+  const [chartScaleMax, setChartScaleMax] = useState(TRAFFIC_CHART_MIN_SCALE);
 
   useEffect(() => {
     if (data) {
@@ -265,9 +268,23 @@ export function DashboardPage() {
 
   useEffect(() => {
     if (!isConnected) {
+      return;
+    }
+
+    const nextPeak = Math.max(currentDownloadBps, currentUploadBps, 1);
+    setChartScaleMax((previous) =>
+      nextPeak > previous
+        ? Math.max(Math.ceil(nextPeak * TRAFFIC_CHART_HEADROOM), TRAFFIC_CHART_MIN_SCALE)
+        : previous
+    );
+  }, [currentDownloadBps, currentUploadBps, isConnected]);
+
+  useEffect(() => {
+    if (!isConnected) {
       latestTrafficRef.current = { download: 0, upload: 0 };
       setTrafficHistory(createEmptyTrafficHistory());
       setChartShiftToken(0);
+      setChartScaleMax(TRAFFIC_CHART_MIN_SCALE);
       return;
     }
 
@@ -288,9 +305,8 @@ export function DashboardPage() {
 
   const downloadSeries = trafficHistory.map((point) => point.download);
   const uploadSeries = trafficHistory.map((point) => point.upload);
-  const chartMax = Math.max(...downloadSeries, ...uploadSeries, 1);
-  const downloadPoints = buildTrafficPoints(downloadSeries, chartMax);
-  const uploadPoints = buildTrafficPoints(uploadSeries, chartMax);
+  const downloadPoints = buildTrafficPoints(downloadSeries, chartScaleMax);
+  const uploadPoints = buildTrafficPoints(uploadSeries, chartScaleMax);
   const downloadLine = buildTrafficPath(downloadPoints);
   const uploadLine = buildTrafficPath(uploadPoints);
   const downloadArea = buildTrafficArea(downloadLine, downloadPoints);

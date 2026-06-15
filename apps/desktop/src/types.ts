@@ -97,6 +97,32 @@ export interface UiSettings {
   showDevelopmentLogs: boolean;
 }
 
+export interface ReleaseInfo {
+  currentVersion: string;
+  latestVersion: string | null;
+  updateAvailable: boolean;
+  releaseUrl: string | null;
+  downloadUrl: string | null;
+  notes: string | null;
+  checked: boolean;
+  error: string | null;
+}
+
+export interface VersionInfo {
+  appVersion: string;
+  backendVersion: string;
+  singboxVersion: string | null;
+  singboxBinaryPath: string;
+  singboxRelease: ReleaseInfo;
+}
+
+export interface UpdateActionResult {
+  ok: boolean;
+  message: string;
+  version?: string | null;
+  releaseUrl?: string | null;
+}
+
 export interface LogEvent {
   id: string;
   ts: string;

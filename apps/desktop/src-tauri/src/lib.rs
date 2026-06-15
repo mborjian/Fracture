@@ -16,9 +16,17 @@ use tauri::path::BaseDirectory;
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 #[cfg(windows)]
+use std::os::windows::ffi::OsStrExt;
+#[cfg(windows)]
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 #[cfg(windows)]
 use winreg::RegKey;
+#[cfg(windows)]
+use windows_sys::Win32::Foundation::HWND;
+#[cfg(windows)]
+use windows_sys::Win32::UI::Shell::ShellExecuteW;
+#[cfg(windows)]
+use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 static BACKEND_CHILD: Lazy<Mutex<Option<Child>>> = Lazy::new(|| Mutex::new(None));
 static BACKEND_SHUTTING_DOWN: Lazy<AtomicBool> = Lazy::new(|| AtomicBool::new(false));
@@ -31,6 +39,20 @@ const BACKEND_HOST: &str = "127.0.0.1";
 const BACKEND_PORT: u16 = 8765;
 const RUN_REG_PATH: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Run";
 const RUN_VALUE_NAME: &str = APP_NAME;
+const APP_REPO: &str = "mborjian/Fracture";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ReleaseInfo {
+    current_version: String,
+    latest_version: Option<String>,
+    update_available: bool,
+    release_url: Option<String>,
+    download_url: Option<String>,
+    notes: Option<String>,
+    checked: bool,
+    error: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -594,6 +616,152 @@ fn should_close_to_tray() -> bool {
     read_app_settings().ui.close_to_tray
 }
 
+fn current_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+fn normalize_version_tag(value: &str) -> String {
+    value.trim().trim_start_matches('v').to_string()
+}
+
+fn github_client() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .user_agent(&format!("{APP_NAME}/{}", current_app_version()))
+        .build()
+}
+
+fn latest_fracture_release() -> Result<Option<ReleaseInfo>, String> {
+    let url = format!("https://api.github.com/repos/{APP_REPO}/releases");
+    let response = github_client()
+        .get(&url)
+        .set("Accept", "application/vnd.github+json")
+        .call()
+        .map_err(|error| format!("failed to query GitHub releases: {error}"))?;
+
+    let releases: Vec<Value> = response
+        .into_json()
+        .map_err(|error| format!("failed to parse GitHub releases response: {error}"))?;
+
+    let Some(release) = releases
+        .into_iter()
+        .find(|item| !item.get("draft").and_then(Value::as_bool).unwrap_or(false))
+    else {
+        return Ok(None);
+    };
+
+    let latest_version = release
+        .get("tag_name")
+        .and_then(Value::as_str)
+        .map(normalize_version_tag)
+        .unwrap_or_default();
+
+    let release_url = release
+        .get("html_url")
+        .and_then(Value::as_str)
+        .map(ToOwned::to_owned);
+
+    let download_url = release
+        .get("assets")
+        .and_then(Value::as_array)
+        .and_then(|assets| {
+            assets.iter().find_map(|asset| {
+                let name = asset.get("name").and_then(Value::as_str)?.to_ascii_lowercase();
+                if !name.ends_with(".exe") && !name.ends_with(".msi") && !name.ends_with(".zip") {
+                    return None;
+                }
+                asset
+                    .get("browser_download_url")
+                    .and_then(Value::as_str)
+                    .map(ToOwned::to_owned)
+            })
+        });
+
+    Ok(Some(ReleaseInfo {
+        current_version: current_app_version(),
+        update_available: !latest_version.is_empty() && latest_version != current_app_version(),
+        latest_version: Some(latest_version),
+        release_url,
+        download_url,
+        notes: release.get("body").and_then(Value::as_str).map(ToOwned::to_owned),
+        checked: true,
+        error: None,
+    }))
+}
+
+#[cfg(windows)]
+fn to_wide_null(value: &std::ffi::OsStr) -> Vec<u16> {
+    value.encode_wide().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(windows)]
+fn relaunch_as_admin_inner() -> Result<(), String> {
+    let exe = std::env::current_exe().map_err(|e| format!("failed to resolve current executable: {e}"))?;
+    let operation = to_wide_null(std::ffi::OsStr::new("runas"));
+    let file = to_wide_null(exe.as_os_str());
+
+    let result = unsafe {
+        ShellExecuteW(
+            0 as HWND,
+            operation.as_ptr(),
+            file.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null(),
+            SW_SHOWNORMAL,
+        )
+    };
+
+    if result as usize <= 32 {
+        return Err("Windows rejected the elevation request".to_string());
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn relaunch_as_admin(app: AppHandle) -> Result<(), String> {
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        return Err("Elevation is only available on Windows".to_string());
+    }
+
+    #[cfg(windows)]
+    {
+        relaunch_as_admin_inner()?;
+        begin_backend_shutdown(app);
+        Ok(())
+    }
+}
+
+#[tauri::command]
+fn get_app_release_info() -> Result<ReleaseInfo, String> {
+    match latest_fracture_release()? {
+        Some(info) => Ok(info),
+        None => Ok(ReleaseInfo {
+            current_version: current_app_version(),
+            latest_version: None,
+            update_available: false,
+            release_url: Some(format!("https://github.com/{APP_REPO}")),
+            download_url: None,
+            notes: None,
+            checked: true,
+            error: Some("No published Fracture release was found on GitHub".to_string()),
+        }),
+    }
+}
+
+#[tauri::command]
+fn open_app_update_page() -> Result<(), String> {
+    let target = match latest_fracture_release()? {
+        Some(info) => info
+            .download_url
+            .or(info.release_url)
+            .unwrap_or_else(|| format!("https://github.com/{APP_REPO}")),
+        None => format!("https://github.com/{APP_REPO}"),
+    };
+    open_external_url(target)
+}
+
 #[tauri::command]
 #[cfg(target_os = "windows")]
 fn open_external_url(url: String) -> Result<(), String> {
@@ -685,7 +853,10 @@ pub fn run() {
             apply_shell_settings,
             hide_to_tray,
             open_external_url,
-            read_import_file_texts
+            read_import_file_texts,
+            relaunch_as_admin,
+            get_app_release_info,
+            open_app_update_page
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {

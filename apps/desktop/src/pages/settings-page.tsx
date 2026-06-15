@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, Plus, Save, Trash2, Laptop, Network } from "lucide-react";
+import { Check, ChevronDown, Plus, Save, Shield, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -98,6 +98,7 @@ export function SettingsPage() {
   const [savingProxy, setSavingProxy] = useState(false);
   const [savingRouting, setSavingRouting] = useState(false);
   const [savingJson, setSavingJson] = useState(false);
+  const [relaunchingAsAdmin, setRelaunchingAsAdmin] = useState(false);
   const listenerMenuRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -333,6 +334,17 @@ export function SettingsPage() {
       await invoke("apply_shell_settings");
       await refetchUi();
     } catch (error) {
+      toast.error((error as Error).message);
+    }
+  };
+
+  const handleRelaunchAsAdmin = async () => {
+    if (relaunchingAsAdmin) return;
+    setRelaunchingAsAdmin(true);
+    try {
+      await api.relaunchAsAdmin();
+    } catch (error) {
+      setRelaunchingAsAdmin(false);
       toast.error((error as Error).message);
     }
   };
@@ -635,6 +647,27 @@ export function SettingsPage() {
                 }
               />
             </label>
+
+            {tunnelSupport?.supported === false ? (
+              <div className="mt-3 flex items-center justify-between gap-3 rounded-xl border border-border bg-panelAlt px-4 py-3 text-sm">
+                <div>
+                  <div className="font-medium">Administrator Mode</div>
+                  <div className="text-xs text-textMuted">
+                    Restart Fracture with Windows administrator privileges for TUN mode and transport operations that require elevation.
+                  </div>
+                </div>
+
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => void handleRelaunchAsAdmin()}
+                  disabled={relaunchingAsAdmin}
+                >
+                  <Shield className="mr-1.5 h-4 w-4" />
+                  {relaunchingAsAdmin ? "Restarting..." : "Re-run As Admin"}
+                </Button>
+              </div>
+            ) : null}
           </Card>
         </div>
       </div>

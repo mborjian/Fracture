@@ -1,9 +1,12 @@
-import { BrickWall, Bug, Copy, GitFork, Handshake, Heart, QrCode, Star, X } from "lucide-react";
-import { SiGithub, SiSolana, SiTether, SiTon } from '@icons-pack/react-simple-icons';
+import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { useState } from "react";
+import { BrickWall, Bug, Copy, Download, GitFork, Handshake, Heart, Info, Loader2, QrCode, Star, X } from "lucide-react";
+import { SiGithub, SiSolana, SiTether, SiTon } from "@icons-pack/react-simple-icons";
 import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { api } from "@/lib/api";
+import type { ReleaseInfo, VersionInfo } from "@/types";
 
 const DONATION_WALLETS = [
   {
@@ -71,9 +74,108 @@ function CopyButton({ value, successMessage }: { value: string; successMessage: 
   );
 }
 
+function VersionRow({
+  title,
+  current,
+  latest,
+  busy,
+  disabled,
+  onCheck,
+}: {
+  title: string;
+  current: string;
+  latest?: string | null;
+  busy: boolean;
+  disabled?: boolean;
+  onCheck: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-panel px-3 py-3">
+      <div>
+        <div className="text-sm font-medium">{title}</div>
+        <div className="text-xs text-textMuted">
+          {`Current ${current}`}
+          {latest ? ` · Latest ${latest}` : ""}
+        </div>
+      </div>
+      <Button variant="secondary" size="sm" onClick={onCheck} disabled={busy || disabled}>
+        {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Download className="mr-1.5 h-4 w-4" />}
+        Check For Update
+      </Button>
+    </div>
+  );
+}
+
 export function AboutPage() {
   const [activeWalletId, setActiveWalletId] = useState<string | null>(null);
+  const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null);
+  const [appRelease, setAppRelease] = useState<ReleaseInfo | null>(null);
+  const [loadingVersions, setLoadingVersions] = useState(true);
+  const [checkingAppUpdate, setCheckingAppUpdate] = useState(false);
+  const [updatingSingbox, setUpdatingSingbox] = useState(false);
   const activeWallet = DONATION_WALLETS.find((wallet) => wallet.walletId === activeWalletId) ?? null;
+
+  useEffect(() => {
+    let active = true;
+
+    void (async () => {
+      try {
+        const [nextVersionInfo, nextAppRelease] = await Promise.all([
+          api.versionInfo(),
+          api.appReleaseInfo(),
+        ]);
+        if (!active) return;
+        setVersionInfo(nextVersionInfo);
+        setAppRelease(nextAppRelease);
+      } catch (error) {
+        if (active) {
+          toast.error((error as Error).message);
+        }
+      } finally {
+        if (active) {
+          setLoadingVersions(false);
+        }
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const handleAppUpdate = async () => {
+    if (checkingAppUpdate) return;
+    setCheckingAppUpdate(true);
+    try {
+      const release = await api.appReleaseInfo();
+      setAppRelease(release);
+      if (!release.updateAvailable) {
+        toast.success(release.error ?? "Fracture is already up to date");
+        return;
+      }
+      await api.openAppUpdatePage();
+      toast.success(`Latest Fracture release: ${release.latestVersion}`);
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setCheckingAppUpdate(false);
+    }
+  };
+
+  const handleSingboxUpdate = async () => {
+    if (updatingSingbox) return;
+    setUpdatingSingbox(true);
+    try {
+      const result = await api.updateSingbox();
+      toast.success(result.message);
+      const refreshed = await api.versionInfo();
+      setVersionInfo(refreshed);
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setUpdatingSingbox(false);
+    }
+  };
 
   return (
     <>
@@ -107,58 +209,58 @@ export function AboutPage() {
               <span>/mborjian/Fracture</span>
             </a>
             <div className="flex flex-wrap items-center justify-end gap-2">
-            <a
-              href="https://github.com/mborjian/Fracture/stargazers"
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => {
-                event.preventDefault();
-                void openExternalUrl("https://github.com/mborjian/Fracture/stargazers");
-              }}
-              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-warning-border)] bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-warning-text)] transition-colors hover:bg-[var(--tone-warning-bg-hover)]"
-            >
-              <Star className="h-3.5 w-3.5" />
-              <span>Star</span>
-            </a>
-            <a
-              href="https://github.com/mborjian/Fracture/subscription"
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => {
-                event.preventDefault();
-                void openExternalUrl("https://github.com/mborjian/Fracture/subscription");
-              }}
-              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-success-border)] bg-[var(--tone-success-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-success-text)] transition-colors hover:bg-[var(--tone-success-bg-hover)]"
-            >
-              <Heart className="h-3.5 w-3.5" />
-              <span>Watch</span>
-            </a>
-            <a
-              href="https://github.com/mborjian/Fracture/fork"
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => {
-                event.preventDefault();
-                void openExternalUrl("https://github.com/mborjian/Fracture/fork");
-              }}
-              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-neutral-text)] transition-colors hover:bg-[var(--tone-neutral-bg-hover)]"
-            >
-              <GitFork className="h-3.5 w-3.5" />
-              <span>Fork</span>
-            </a>
-            <a
-              href="https://github.com/mborjian/Fracture/issues/new/choose"
-              target="_blank"
-              rel="noreferrer"
-              onClick={(event) => {
-                event.preventDefault();
-                void openExternalUrl("https://github.com/mborjian/Fracture/issues/new/choose");
-              }}
-              className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-danger-border)] bg-[var(--tone-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-danger-text)] transition-colors hover:bg-[var(--tone-danger-bg-hover)]"
-            >
-              <Bug className="h-3.5 w-3.5" />
-              <span>Report Issue</span>
-            </a>
+              <a
+                href="https://github.com/mborjian/Fracture/stargazers"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl("https://github.com/mborjian/Fracture/stargazers");
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-warning-border)] bg-[var(--tone-warning-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-warning-text)] transition-colors hover:bg-[var(--tone-warning-bg-hover)]"
+              >
+                <Star className="h-3.5 w-3.5" />
+                <span>Star</span>
+              </a>
+              <a
+                href="https://github.com/mborjian/Fracture/subscription"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl("https://github.com/mborjian/Fracture/subscription");
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-success-border)] bg-[var(--tone-success-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-success-text)] transition-colors hover:bg-[var(--tone-success-bg-hover)]"
+              >
+                <Heart className="h-3.5 w-3.5" />
+                <span>Watch</span>
+              </a>
+              <a
+                href="https://github.com/mborjian/Fracture/fork"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl("https://github.com/mborjian/Fracture/fork");
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-neutral-border)] bg-[var(--tone-neutral-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-neutral-text)] transition-colors hover:bg-[var(--tone-neutral-bg-hover)]"
+              >
+                <GitFork className="h-3.5 w-3.5" />
+                <span>Fork</span>
+              </a>
+              <a
+                href="https://github.com/mborjian/Fracture/issues/new/choose"
+                target="_blank"
+                rel="noreferrer"
+                onClick={(event) => {
+                  event.preventDefault();
+                  void openExternalUrl("https://github.com/mborjian/Fracture/issues/new/choose");
+                }}
+                className="inline-flex items-center gap-1 rounded-xl border border-[var(--tone-danger-border)] bg-[var(--tone-danger-bg)] px-2.5 py-1 text-xs font-medium text-[var(--tone-danger-text)] transition-colors hover:bg-[var(--tone-danger-bg-hover)]"
+              >
+                <Bug className="h-3.5 w-3.5" />
+                <span>Report Issue</span>
+              </a>
             </div>
           </div>
         </Card>
@@ -239,6 +341,33 @@ export function AboutPage() {
               </div>
             ))}
           </div>
+        </Card>
+
+        <Card className="rounded-xl border border-border bg-panelAlt p-4 flex flex-col gap-3">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <Info className="h-4 w-4 text-cyan-500" />
+            <span>Versions</span>
+          </div>
+          <div className="space-y-2">
+            <VersionRow
+              title="Fracture"
+              current={loadingVersions ? "Loading..." : (appRelease?.currentVersion ?? versionInfo?.appVersion ?? "unknown")}
+              latest={appRelease?.latestVersion ?? null}
+              busy={checkingAppUpdate}
+              disabled={loadingVersions}
+              onCheck={() => void handleAppUpdate()}
+            />
+            <VersionRow
+              title="sing-box"
+              current={loadingVersions ? "Loading..." : (versionInfo?.singboxVersion ?? "not found")}
+              latest={versionInfo?.singboxRelease.latestVersion ?? null}
+              busy={updatingSingbox}
+              disabled={loadingVersions}
+              onCheck={() => void handleSingboxUpdate()}
+            />
+          </div>
+          {appRelease?.error ? <div className="text-xs text-textMuted">{appRelease.error}</div> : null}
+          {versionInfo?.singboxRelease.error ? <div className="text-xs text-textMuted">{versionInfo.singboxRelease.error}</div> : null}
         </Card>
       </div>
 

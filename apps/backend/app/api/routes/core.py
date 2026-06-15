@@ -3,11 +3,13 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
+from app.core.config import settings
 from app.db.database import fetch_core_settings, fetch_routing_config
 from app.services.profiles import list_profiles
 from app.services.ping import ProfilePingService
 from app.services.runtime import CoreRuntimeService
 from app.services.transport import manager as transport_manager
+from app.services.updates import _current_singbox_binary, current_singbox_version, latest_singbox_release, update_singbox_binary
 
 router = APIRouter(prefix="/api/core", tags=["core"])
 
@@ -73,6 +75,30 @@ async def core_restart(request: Request) -> dict:
 async def core_refresh_egress(request: Request) -> dict:
     runtime_service = _runtime_service(request)
     return await runtime_service.refresh_egress()
+
+
+@router.get("/version-info")
+async def core_version_info() -> dict:
+    release = latest_singbox_release()
+    return {
+        "appVersion": settings.version,
+        "backendVersion": settings.version,
+        "singboxVersion": current_singbox_version(),
+        "singboxBinaryPath": str(_current_singbox_binary()),
+        "singboxRelease": release.as_dict(),
+    }
+
+
+@router.post("/singbox/update")
+async def core_update_singbox(request: Request) -> dict:
+    runtime_service = _runtime_service(request)
+    status = await runtime_service.get_status()
+    if status.get("state") in {"starting", "running"}:
+        raise HTTPException(status_code=409, detail="Stop the runtime before updating sing-box")
+    result = update_singbox_binary()
+    if not result.get("ok"):
+        raise HTTPException(status_code=500, detail=result.get("message") or "sing-box update failed")
+    return result
 
 
 @router.get("/health")
