@@ -44,6 +44,12 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
 
+      - name: Update npm to latest version
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          npm install -g npm@latest
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
