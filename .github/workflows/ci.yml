@@ -40,10 +40,11 @@ jobs:
           cache: npm
           cache-dependency-path: apps/desktop/package-lock.json
 
-      - name: Update npm to latest version
+      - name: Configure npm registry and update
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
+          npm config set registry https://registry.npmjs.org/
           npm install -g npm@latest
 
       - name: Set up Python
@@ -102,20 +103,6 @@ jobs:
           "backend_lint=$($rootScriptNames -contains 'backend:lint')" >> $env:GITHUB_OUTPUT
           "desktop_test_script=$($desktopScriptNames -contains 'test')" >> $env:GITHUB_OUTPUT
           "python_tests=$($pythonTests.Count -gt 0)" >> $env:GITHUB_OUTPUT
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: apps/desktop/package-lock.json
-
-      - name: Configure npm registry and update
-        run: |
-          Set-StrictMode -Version Latest
-          $ErrorActionPreference = 'Stop'
-          npm config set registry https://registry.npmjs.org/
-          npm install -g npm@latest
 
       - name: Install frontend dependencies
         run: |
