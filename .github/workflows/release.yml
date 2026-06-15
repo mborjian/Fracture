@@ -1,0 +1,200 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  NODE_VERSION: 24.x
+  PYTHON_VERSION: '3.12'
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  PIP_DISABLE_PIP_VERSION_CHECK: '1'
+  PYTHONUTF8: '1'
+  PYTHONHASHSEED: '0'
+
+jobs:
+  windows-release:
+    name: Build And Publish Windows Release
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    defaults:
+      run:
+        shell: pwsh
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: pip
+          cache-dependency-path: apps/backend/requirements.txt
+
+      - name: Set up Rust toolchain
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          rustup toolchain install stable --profile minimal --no-self-update
+          rustup default stable
+
+      - name: Cache Cargo registry and target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\.cargo\registry\cache
+            ~\.cargo\registry\index
+            ~\.cargo\git\db
+            apps\desktop\src-tauri\target
+          key: ${{ runner.os }}-cargo-release-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-release-
+            ${{ runner.os }}-cargo-
+
+      - name: Validate tag matches project versions
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $expectedVersion = $env:GITHUB_REF_NAME.TrimStart('v')
+
+          $versions = [ordered]@{
+            'package.json' = (Get-Content package.json | ConvertFrom-Json).version
+            'apps/desktop/package.json' = (Get-Content apps/desktop/package.json | ConvertFrom-Json).version
+            'apps/desktop/src-tauri/tauri.conf.json' = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          }
+
+          $cargoMatch = Select-String -Path apps/desktop/src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"$'
+          if ($cargoMatch.Count -eq 0) {
+            throw 'Could not find a version entry in apps/desktop/src-tauri/Cargo.toml.'
+          }
+          $versions['apps/desktop/src-tauri/Cargo.toml'] = $cargoMatch.Matches[0].Groups[1].Value
+
+          $pyprojectMatch = Select-String -Path apps/backend/pyproject.toml -Pattern '^version = "([^"]+)"$'
+          if ($pyprojectMatch.Count -eq 0) {
+            throw 'Could not find a version entry in apps/backend/pyproject.toml.'
+          }
+          $versions['apps/backend/pyproject.toml'] = $pyprojectMatch.Matches[0].Groups[1].Value
+
+          $backendConfigMatch = Select-String -Path apps/backend/app/core/config.py -Pattern 'version: str = "([^"]+)"'
+          if ($backendConfigMatch.Count -eq 0) {
+            throw 'Could not find a version entry in apps/backend/app/core/config.py.'
+          }
+          $versions['apps/backend/app/core/config.py'] = $backendConfigMatch.Matches[0].Groups[1].Value
+
+          $mismatches = @(
+            $versions.GetEnumerator() | Where-Object { $_.Value -ne $expectedVersion }
+          )
+
+          if ($mismatches.Count -gt 0) {
+            $details = $mismatches | ForEach-Object { "$($_.Key)=$($_.Value)" }
+            throw "Tag version '$expectedVersion' does not match: $($details -join ', ')"
+          }
+
+      - name: Set release build metadata
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          # This helps downstream tooling produce deterministic timestamps where supported.
+          "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> $env:GITHUB_ENV
+
+      - name: Install frontend dependencies
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          npm --prefix apps/desktop ci
+
+      - name: Build release artifacts
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          npm run build:release
+
+      - name: Collect release artifacts
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $bundleDir = Join-Path $PWD 'apps/desktop/src-tauri/target/release/bundle'
+          $portableExe = Join-Path $PWD 'apps/desktop/src-tauri/target/release/fracture-desktop.exe'
+          $artifactList = New-Object System.Collections.Generic.List[string]
+
+          if (Test-Path -LiteralPath $bundleDir) {
+            Get-ChildItem -Path $bundleDir -Recurse -File | Where-Object {
+              $_.Extension -in '.exe', '.msi', '.zip', '.dmg', '.deb', '.rpm' -or
+              $_.Name -like '*.AppImage' -or
+              $_.Name -like '*.tar.gz'
+            } | ForEach-Object {
+              $artifactList.Add($_.FullName)
+            }
+          }
+
+          if (Test-Path -LiteralPath $portableExe) {
+            $artifactList.Add((Resolve-Path $portableExe).Path)
+          }
+
+          $artifacts = $artifactList | Sort-Object -Unique
+          if ($artifacts.Count -eq 0) {
+            throw 'No release artifacts were found after the Tauri build.'
+          }
+
+          $artifacts | Set-Content -Path .github-release-artifacts.txt -Encoding utf8
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: fracture-release-${{ github.ref_name }}
+          retention-days: 30
+          if-no-files-found: error
+          path: |
+            .github-release-artifacts.txt
+            apps/backend/dist/fracture-backend.exe
+            apps/desktop/src-tauri/target/release/bundle/**
+            apps/desktop/src-tauri/target/release/fracture-desktop.exe
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $tag = $env:GITHUB_REF_NAME
+          $title = "Fracture $tag"
+          $artifacts = Get-Content -Path .github-release-artifacts.txt | Where-Object { $_ }
+          $notesResponse = gh api "repos/$env:GITHUB_REPOSITORY/releases/generate-notes" `
+            -X POST `
+            -f tag_name=$tag `
+            | ConvertFrom-Json
+
+          $notesPath = Join-Path $PWD '.github-release-notes.md'
+          $notesResponse.body | Set-Content -Path $notesPath -Encoding utf8
+
+          gh release view $tag *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release edit $tag --title $title --notes-file $notesPath
+            gh release upload $tag $artifacts --clobber
+          }
+          else {
+            gh release create $tag $artifacts --title $title --notes-file $notesPath
+          }

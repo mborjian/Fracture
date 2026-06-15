@@ -18,6 +18,8 @@ desktop.ini
 # Node / React / Vite
 node_modules/
 **/node_modules/
+.npm/
+.pnpm-store/
 dist/
 **/dist/
 build/
@@ -54,8 +56,14 @@ __pycache__/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+.hypothesis/
+.tox/
+.nox/
 .coverage
+.coverage.*
 htmlcov/
+.python-version
+pip-wheel-metadata/
 *.egg-info/
 
 # PyInstaller / backend release artifacts
@@ -83,6 +91,8 @@ sing-box/*
 # Logs
 logs/
 *.log
+*.pid
+*.pdb
 
 /graphify-out/
 /.graphify*
