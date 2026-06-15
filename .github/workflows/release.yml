@@ -84,19 +84,19 @@ jobs:
             'apps/desktop/src-tauri/tauri.conf.json' = (Get-Content apps/desktop/src-tauri/tauri.conf.json | ConvertFrom-Json).version
           }
 
-          $cargoMatch = Select-String -Path apps/desktop/src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"$'
+          $cargoMatch = @(Select-String -Path apps/desktop/src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"$')
           if ($cargoMatch.Count -eq 0) {
             throw 'Could not find a version entry in apps/desktop/src-tauri/Cargo.toml.'
           }
           $versions['apps/desktop/src-tauri/Cargo.toml'] = $cargoMatch.Matches[0].Groups[1].Value
 
-          $pyprojectMatch = Select-String -Path apps/backend/pyproject.toml -Pattern '^version = "([^"]+)"$'
+          $pyprojectMatch = @(Select-String -Path apps/backend/pyproject.toml -Pattern '^version = "([^"]+)"$')
           if ($pyprojectMatch.Count -eq 0) {
             throw 'Could not find a version entry in apps/backend/pyproject.toml.'
           }
           $versions['apps/backend/pyproject.toml'] = $pyprojectMatch.Matches[0].Groups[1].Value
 
-          $backendConfigMatch = Select-String -Path apps/backend/app/core/config.py -Pattern 'version: str = "([^"]+)"'
+          $backendConfigMatch = @(Select-String -Path apps/backend/app/core/config.py -Pattern 'version: str = "([^"]+)"')
           if ($backendConfigMatch.Count -eq 0) {
             throw 'Could not find a version entry in apps/backend/app/core/config.py.'
           }
@@ -106,7 +106,7 @@ jobs:
             $versions.GetEnumerator() | Where-Object { $_.Value -ne $expectedVersion }
           )
 
-          if ($mismatches.Count -gt 0) {
+          if (@($mismatches).Count -gt 0) {
             $details = $mismatches | ForEach-Object { "$($_.Key)=$($_.Value)" }
             throw "Tag version '$expectedVersion' does not match: $($details -join ', ')"
           }
@@ -153,7 +153,7 @@ jobs:
             $artifactList.Add((Resolve-Path $portableExe).Path)
           }
 
-          $artifacts = $artifactList | Sort-Object -Unique
+          $artifacts = @($artifactList | Sort-Object -Unique)
           if ($artifacts.Count -eq 0) {
             throw 'No release artifacts were found after the Tauri build.'
           }

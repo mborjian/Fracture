@@ -77,25 +77,25 @@ jobs:
 
           $rootScriptNames = @()
           if ($null -ne $rootPackage.scripts) {
-            $rootScriptNames = $rootPackage.scripts.PSObject.Properties.Name
+            $rootScriptNames = @($rootPackage.scripts.PSObject.Properties.Name)
           }
 
           $desktopScriptNames = @()
           if ($null -ne $desktopPackage.scripts) {
-            $desktopScriptNames = $desktopPackage.scripts.PSObject.Properties.Name
+            $desktopScriptNames = @($desktopPackage.scripts.PSObject.Properties.Name)
           }
 
-          $pythonTests = Get-ChildItem -Path apps/backend -Recurse -File | Where-Object {
+          $pythonTests = @(Get-ChildItem -Path apps/backend -Recurse -File | Where-Object {
             $_.FullName -match '\\tests\\' -or
             $_.Name -match '^test_.*\.py$' -or
             $_.Name -match '.*_test\.py$' -or
             $_.Name -match '.*\.test\.py$' -or
             $_.Name -match '.*\.spec\.py$'
-          }
+          })
 
           "backend_lint=$($rootScriptNames -contains 'backend:lint')" >> $env:GITHUB_OUTPUT
           "desktop_test_script=$($desktopScriptNames -contains 'test')" >> $env:GITHUB_OUTPUT
-          "python_tests=$(($pythonTests | Measure-Object).Count -gt 0)" >> $env:GITHUB_OUTPUT
+          "python_tests=$($pythonTests.Count -gt 0)" >> $env:GITHUB_OUTPUT
 
       - name: Install frontend dependencies
         run: |
