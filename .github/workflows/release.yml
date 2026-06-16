@@ -73,7 +73,6 @@ jobs:
             ~\.cargo\registry\cache
             ~\.cargo\registry\index
             ~\.cargo\git\db
-            apps\desktop\src-tauri\target
           key: ${{ runner.os }}-cargo-release-${{ hashFiles('apps/desktop/src-tauri/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-release-
@@ -137,11 +136,64 @@ jobs:
           $ErrorActionPreference = 'Stop'
           npm --prefix apps/desktop ci
 
+      - name: Clean desktop build outputs
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $targetDir = Join-Path $PWD 'apps/desktop/src-tauri/target'
+          if (Test-Path -LiteralPath $targetDir) {
+            Remove-Item -LiteralPath $targetDir -Recurse -Force
+          }
+
       - name: Build release artifacts
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
           npm run build:release
+
+      - name: Verify backend executable starts
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $expectedVersion = $env:GITHUB_REF_NAME.TrimStart('v')
+          $backendExe = Join-Path $PWD 'apps/backend/dist/fracture-backend.exe'
+          if (-not (Test-Path -LiteralPath $backendExe)) {
+            throw "Backend executable was not produced at '$backendExe'."
+          }
+
+          $process = Start-Process -FilePath $backendExe -WindowStyle Hidden -PassThru
+          try {
+            $deadline = [DateTime]::UtcNow.AddSeconds(20)
+            $response = $null
+
+            while ([DateTime]::UtcNow -lt $deadline) {
+              try {
+                $response = Invoke-RestMethod -Uri 'http://127.0.0.1:8765/health' -TimeoutSec 2
+                break
+              }
+              catch {
+                if ($process.HasExited) {
+                  throw "Backend process exited early with code $($process.ExitCode)."
+                }
+                Start-Sleep -Milliseconds 500
+              }
+            }
+
+            if ($null -eq $response) {
+              throw 'Backend executable did not answer /health within 20 seconds.'
+            }
+
+            if ($response.version -ne $expectedVersion) {
+              throw "Backend executable version '$($response.version)' does not match tag version '$expectedVersion'."
+            }
+          }
+          finally {
+            if ($process -and -not $process.HasExited) {
+              Stop-Process -Id $process.Id -Force
+            }
+          }
 
       - name: Collect release artifacts
         run: |
