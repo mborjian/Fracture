@@ -10,4 +10,4 @@ This produces:
 
 - `apps/backend/dist/fracture-backend.exe`
 
-The Tauri release workflow copies this artifact into `apps/desktop/src-tauri` bundle resources.
+The Tauri release build bundles this artifact at the resource path `backend/fracture-backend.exe`.

@@ -33,9 +33,9 @@
     "active": true,
     "targets": ["nsis"],
     "icon": ["icons/icon.png"],
-    "resources": [
-      "../../backend/dist/fracture-backend.exe"
-    ]
+    "resources": {
+      "../../backend/dist/fracture-backend.exe": "backend/fracture-backend.exe"
+    }
   },
   "plugins": {
     "updater": {
