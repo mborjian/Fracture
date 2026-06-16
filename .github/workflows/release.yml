@@ -110,6 +110,11 @@ jobs:
           }
           $versions['apps/backend/app/core/config.py'] = $backendConfigMatch.Matches[0].Groups[1].Value
 
+          $backendUserAgentMatch = @(Select-String -Path apps/backend/app/services/updates.py -Pattern 'USER_AGENT = f"FractureBackend/\{settings\.version\}"')
+          if ($backendUserAgentMatch.Count -eq 0) {
+            throw 'apps/backend/app/services/updates.py must derive USER_AGENT from settings.version.'
+          }
+
           $mismatches = @(
             $versions.GetEnumerator() | Where-Object { $_.Value -ne $expectedVersion }
           )

@@ -6,6 +6,8 @@
     "run": "npm run run:dev",
     "run:dev": "powershell -ExecutionPolicy Bypass -File ./scripts/run-fracture.ps1 -Mode dev",
     "build:release": "powershell -ExecutionPolicy Bypass -File ./apps/backend/scripts/build-backend.ps1 && npm --prefix apps/desktop run tauri:build",
+    "release:prepare": "node ./scripts/release-prepare.mjs",
+    "release:finalize": "node ./scripts/release-finalize.mjs",
     "run:prod": "powershell -ExecutionPolicy Bypass -File ./scripts/run-fracture.ps1 -Mode prod",
     "run:prod:build": "powershell -ExecutionPolicy Bypass -File ./scripts/run-fracture.ps1 -Mode prod -BuildIfMissing",
     "desktop:dev": "npm --prefix apps/desktop run dev",

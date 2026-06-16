@@ -75,6 +75,26 @@ Build a packaged release for distribution:
 npm run build:release
 ```
 
+Prepare the next GitHub release from the latest `v*` tag:
+
+```powershell
+npm run release:prepare
+```
+
+That command:
+- infers the next semantic version from commits since the latest version tag
+- updates the app version across the tracked manifest/config files
+- creates `.github/releases/<version>.md` as the curated release notes file
+- creates `.release-tmp/release-notes-input-<version>.md` with a hardcoded AI prompt, commit history, and full diff context
+
+After you paste the final release notes into the generated `.github/releases/<version>.md`, finalize and publish:
+
+```powershell
+npm run release:finalize
+```
+
+That command creates the release commit, tags `v<version>`, pushes the branch and tag, and lets the GitHub release workflow publish the release assets.
+
 ## Support And References
 
 - GitHub repository: [mborjian/Fracture](https://github.com/mborjian/Fracture)
