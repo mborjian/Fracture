@@ -151,6 +151,16 @@ fn bundled_backend_executable(app: &AppHandle) -> Option<PathBuf> {
     first_existing(&candidates)
 }
 
+fn sidecar_backend_executable() -> Option<PathBuf> {
+    let exe_dir = std::env::current_exe().ok()?.parent()?.to_path_buf();
+    first_existing(&[
+        exe_dir.join("backend").join("fracture-backend.exe"),
+        exe_dir.join("backend").join("fracture-backend"),
+        exe_dir.join("fracture-backend.exe"),
+        exe_dir.join("fracture-backend"),
+    ])
+}
+
 fn local_release_backend_executable() -> Option<PathBuf> {
     let base = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
@@ -194,9 +204,10 @@ fn hide_on_windows(command: &mut Command) {
 
 fn spawn_production_backend_process(app: &AppHandle) -> Result<Child, String> {
     let backend_bin = bundled_backend_executable(app)
+        .or_else(sidecar_backend_executable)
         .or_else(local_release_backend_executable)
         .ok_or_else(|| {
-            "production backend executable not found. Expected 'fracture-backend.exe' in bundled resources or apps/backend/dist."
+            "production backend executable not found. Expected 'fracture-backend.exe' in bundled resources, next to the app in 'backend/', or in apps/backend/dist."
                 .to_string()
         })?;
 

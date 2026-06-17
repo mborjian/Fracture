@@ -195,13 +195,47 @@ jobs:
             }
           }
 
+      - name: Create portable desktop package
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+
+          $releaseDir = Join-Path $PWD 'apps/desktop/src-tauri/target/release'
+          $portableRoot = Join-Path $releaseDir 'portable'
+          $portableBackendDir = Join-Path $portableRoot 'backend'
+          $desktopExe = Join-Path $releaseDir 'fracture-desktop.exe'
+          $backendExe = Join-Path $PWD 'apps/backend/dist/fracture-backend.exe'
+          $portableZip = Join-Path $releaseDir "Fracture_$($env:GITHUB_REF_NAME)_windows_x64_portable.zip"
+
+          if (-not (Test-Path -LiteralPath $desktopExe)) {
+            throw "Desktop executable was not produced at '$desktopExe'."
+          }
+
+          if (-not (Test-Path -LiteralPath $backendExe)) {
+            throw "Backend executable was not produced at '$backendExe'."
+          }
+
+          if (Test-Path -LiteralPath $portableRoot) {
+            Remove-Item -LiteralPath $portableRoot -Recurse -Force
+          }
+
+          if (Test-Path -LiteralPath $portableZip) {
+            Remove-Item -LiteralPath $portableZip -Force
+          }
+
+          New-Item -ItemType Directory -Path $portableBackendDir -Force | Out-Null
+          Copy-Item -LiteralPath $desktopExe -Destination (Join-Path $portableRoot 'fracture-desktop.exe')
+          Copy-Item -LiteralPath $backendExe -Destination (Join-Path $portableBackendDir 'fracture-backend.exe')
+
+          Compress-Archive -Path (Join-Path $portableRoot '*') -DestinationPath $portableZip
+
       - name: Collect release artifacts
         run: |
           Set-StrictMode -Version Latest
           $ErrorActionPreference = 'Stop'
 
           $bundleDir = Join-Path $PWD 'apps/desktop/src-tauri/target/release/bundle'
-          $portableExe = Join-Path $PWD 'apps/desktop/src-tauri/target/release/fracture-desktop.exe'
+          $portableZip = Join-Path $PWD "apps/desktop/src-tauri/target/release/Fracture_$($env:GITHUB_REF_NAME)_windows_x64_portable.zip"
           $artifactList = New-Object System.Collections.Generic.List[string]
 
           if (Test-Path -LiteralPath $bundleDir) {
@@ -214,8 +248,8 @@ jobs:
             }
           }
 
-          if (Test-Path -LiteralPath $portableExe) {
-            $artifactList.Add((Resolve-Path $portableExe).Path)
+          if (Test-Path -LiteralPath $portableZip) {
+            $artifactList.Add((Resolve-Path $portableZip).Path)
           }
 
           $artifacts = @($artifactList | Sort-Object -Unique)
@@ -235,7 +269,7 @@ jobs:
             .github-release-artifacts.txt
             apps/backend/dist/fracture-backend.exe
             apps/desktop/src-tauri/target/release/bundle/**
-            apps/desktop/src-tauri/target/release/fracture-desktop.exe
+            apps/desktop/src-tauri/target/release/Fracture_*_windows_x64_portable.zip
 
       - name: Create or update GitHub Release
         env:
