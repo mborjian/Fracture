@@ -4,11 +4,24 @@
 
 [![Release](https://img.shields.io/github/v/release/mborjian/Fracture?label=نسخه%20GitHub)](https://github.com/mborjian/Fracture/releases) [![Stars](https://img.shields.io/github/stars/mborjian/Fracture?style=social)](https://github.com/mborjian/Fracture/stargazers) [![Issues](https://img.shields.io/github/issues/mborjian/Fracture)](https://github.com/mborjian/Fracture/issues) [![License](https://img.shields.io/github/license/mborjian/Fracture)](LICENSE)
 
-فرکتچر یک پنل دسکتاپ ویندوز است که مدیریت پروفایل‌های `sing-box`، runtime محلی پروکسی و تنظیمات Cloudflare listener را در یک برنامه یکپارچه ارائه می‌دهد.
+Fracture یک پنل دسکتاپ ویندوز است که مدیریت پروفایل‌های `sing-box`، runtime محلی پروکسی و تنظیمات Cloudflare listener را در یک برنامه یکپارچه ارائه می‌دهد.
 
 این ابزار برای کاربری ساده و مدیریت موثر در همین اپلیکیشن طراحی شده است؛ بدون نیاز به اسکریپت‌نویسی یا اجرای دستی دستورات در ترمینال.
 
-## فرکتچر چه کاری انجام می‌دهد
+## Screenshots
+
+<p align="center">
+  <img src="docs/screen-shots/Home.png" alt="Home" width="49%" />
+  <img src="docs/screen-shots/Profile.png" alt="Profiles" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screen-shots/Setting.png" alt="Settings" width="49%" />
+  <img src="docs/screen-shots/Log.png" alt="Logs" width="49%" />
+</p>
+
+---
+
+## Fracture چه کاری انجام می‌دهد
 
 - وارد کردن پروفایل‌های proxy از لینک‌های subscription، URIها یا فایل‌های متنی
 - سازمان‌دهی پروفایل‌ها با تغییر نام، مرتب‌سازی، export، حذف و انتخاب پروفایل فعال
@@ -19,7 +32,7 @@
 
 ## انواع پروفایل‌های پشتیبانی‌شده
 
-فرکتچر فرمت‌هایی را که pipeline جاری برنامه پشتیبانی می‌کند می‌پذیرد، از جمله:
+Fracture فرمت‌هایی را که pipeline جاری برنامه پشتیبانی می‌کند می‌پذیرد، از جمله:
 
 - `vless://`
 - `vmess://`
@@ -36,7 +49,7 @@
 
 ## شروع سریع
 
-1. فرکتچر را باز کنید.
+1. Fracture را باز کنید.
 2. پروفایل‌ها را import یا paste کنید.
 3. در صورت نیاز آن‌ها را تست کنید.
 4. پروفایل فعال را انتخاب کنید.
@@ -52,7 +65,7 @@
 
 ## داده‌های محلی
 
-فرکتچر وضعیت و پیکربندی را در فایل‌های محلی ذخیره می‌کند مانند:
+Fracture وضعیت و پیکربندی را در فایل‌های محلی ذخیره می‌کند مانند:
 
 - `data/profiles.json`
 - `data/cloudflare-config.json`
@@ -93,7 +106,7 @@ npm run build:release
 
 ## قدردانی
 
-فرکتچر بر پایه ایده‌ها و پروژه‌های متن‌باز پیشین ساخته شده است.
+Fracture بر پایه ایده‌ها و پروژه‌های متن‌باز پیشین ساخته شده است.
 
 - [g3ntrix/Cloak](https://github.com/g3ntrix/Cloak)
 - [patterniha/SNI-Spoofing](https://github.com/patterniha/SNI-Spoofing)

@@ -8,6 +8,19 @@ Fracture is a Windows desktop control panel designed for easy management of `sin
 
 It brings the full workflow into one app, with profile import, runtime control, diagnostics, and local configuration stored safely on your machine.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/screen-shots/Home.png" alt="Home" width="49%" />
+  <img src="docs/screen-shots/Profile.png" alt="Profiles" width="49%" />
+</p>
+<p align="center">
+  <img src="docs/screen-shots/Setting.png" alt="Settings" width="49%" />
+  <img src="docs/screen-shots/Log.png" alt="Logs" width="49%" />
+</p>
+
+---
+
 ## What Fracture Does
 
 - Import proxy profiles from subscription links, URI strings, or text files
